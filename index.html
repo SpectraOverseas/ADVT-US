@@ -3476,18 +3476,6 @@ function findIndexByTokens(headers, tokens){
   for(let i=0;i<HX.length;i++){ const h=HX[i]; if(tokens.some(t=>h.includes(t))) return i; }
   return -1;
 }
-
-function rowHasValues(row){
-  if(!Array.isArray(row)) return false;
-  for(const cell of row){
-    if(cell==null) continue;
-    if(typeof cell==='number' && !Number.isNaN(cell)) return true;
-    if(cell instanceof Date) return true;
-    const text=String(cell).trim();
-    if(text) return true;
-  }
-  return false;
-}
 async function handleLocalFile(e){
   const f = e.target.files && e.target.files[0];
   if(!f) return;
@@ -3592,7 +3580,7 @@ function ensureDefaultWorkbook(){
 }
 async function parseExcel(buf){
   const wb = XLSX.read(buf, { type:'array', cellDates:true, cellNF:true, cellText:false });
-  let best=null,score=-1,bestHeaderIndex=1;
+  let best=null,score=-1;
   for(const name of wb.SheetNames){
     const ws=wb.Sheets[name];
     if(!ws) continue;
@@ -3610,15 +3598,12 @@ async function parseExcel(buf){
       dense:true,
       range:sampleRange
     });
-    if(!sample || !sample.length) continue;
-    const headerIndex=sample.findIndex(rowHasValues);
-    if(headerIndex<0) continue;
-    const headerRow=Array.isArray(sample[headerIndex])?sample[headerIndex]:[];
-    const headers=headerRow.map(value=>String(value??'').trim());
+    if(!sample || sample.length<3) continue;
+    const headers=(sample[1]||[]).map(value=>String(value??'').trim());
     const s=['store','sales','spend','clicks','impressions']
       .map(t=>findIndexByTokens(headers,[t])>-1?1:0)
       .reduce((a,b)=>a+b,0);
-    if(s>score){score=s;best=name;bestHeaderIndex=headerIndex;}
+    if(s>score){score=s;best=name;}
   }
   if(!best) throw new Error('No usable sheet found');
   const ws=wb.Sheets[best];
@@ -3628,26 +3613,15 @@ async function parseExcel(buf){
     defval:null,
     dense:true
   });
-  await buildStateFromSheetData(sheetData,{headerRowIndex:bestHeaderIndex});
+  await buildStateFromSheetData(sheetData,{headerRowIndex:1});
 }
 
 async function buildStateFromSheetData(sheetData, options={}){
   const SQL = await (sqlReadyPromise || loadSqlLibrary());
   if(!SQL) throw new Error('Unable to initialize SQL engine');
-  if(!Array.isArray(sheetData) || !sheetData.length) throw new Error('No usable sheet found');
-  let headerRowIndex=Number.isInteger(options?.headerRowIndex)?options.headerRowIndex:1;
-  if(headerRowIndex<0) headerRowIndex=0;
-  if(headerRowIndex>=sheetData.length) headerRowIndex=sheetData.length-1;
-  if(headerRowIndex<0) throw new Error('No usable sheet found');
-  if(!rowHasValues(sheetData[headerRowIndex])){
-    const fallbackIndex=sheetData.findIndex(rowHasValues);
-    if(fallbackIndex===-1){
-      throw new Error('No usable sheet found');
-    }
-    headerRowIndex=fallbackIndex;
-  }
+  if(!Array.isArray(sheetData) || sheetData.length<3) throw new Error('No usable sheet found');
+  const headerRowIndex=Number.isInteger(options?.headerRowIndex)?options.headerRowIndex:1;
   const headerRow=Array.isArray(sheetData[headerRowIndex])?sheetData[headerRowIndex]:[];
-  if(!rowHasValues(headerRow)) throw new Error('No usable sheet found');
   const headers=headerRow.map(h=>String(h??'').trim());
   const dataRowsRaw=sheetData.slice(headerRowIndex+1);
   const totalRows=dataRowsRaw.length;
