@@ -2550,7 +2550,6 @@ async function loadWorkbookOption(option){
   if(!option) return false;
   const buf=await fetchWorkbookBuffer(option.file);
   await loadWorkbookBuffer(buf);
-  setActiveWorkbookOption(option.id);
   return true;
 }
 
@@ -2570,6 +2569,9 @@ async function handleDatasetMenuChange(ev){
   }
   const previousOption=state.activeWorkbookOption;
   const previousCustom=state.customWorkbookLabel;
+  if(option.id){
+    setActiveWorkbookOption(option.id);
+  }
   closeDatasetMenu(false);
   showLoading(true);
   try{
