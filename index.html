@@ -57,6 +57,10 @@ button:disabled{opacity:.5;cursor:not-allowed}
 /* Header */
 .app-header{display:grid;grid-template-columns:auto minmax(260px,1fr) auto;align-items:center;gap:clamp(12px,2vw,24px);padding:12px clamp(14px,3vw,28px);border-bottom:1px solid var(--border);background:var(--header-grad);position:sticky;top:0;backdrop-filter:blur(6px);z-index:20}
 .header-title{display:flex;align-items:center;gap:10px;min-width:0}
+.menu-btn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--panel) 85%, var(--chip));box-shadow:var(--shadow);color:var(--text);transition:transform .12s ease, box-shadow .25s ease, background .2s ease}
+.menu-btn:hover{transform:translateY(-1px);box-shadow:0 12px 28px rgba(0,0,0,.28);background:color-mix(in srgb,var(--chip) 90%, var(--panel))}
+.menu-btn:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.menu-btn svg{width:18px;height:18px;fill:currentColor}
 .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .header-search{display:flex;justify-content:center;min-width:0}
 .header-filter{grid-template-columns:1fr;min-width:0;width:min(420px,100%)}
@@ -360,7 +364,12 @@ body.has-data #tipPill{display:none !important}
 <body>
 
 <header id="appHeader" class="app-header">
-  <div class="header-title"><h1>🔎 Search Terms Analytics</h1></div>
+  <div class="header-title">
+    <button type="button" class="menu-btn" aria-label="Toggle menu">
+      <svg viewBox="0 0 24 24" role="img" aria-hidden="true"><path d="M4 6h16a1 1 0 1 0 0-2H4a1 1 0 0 0 0 2Zm16 5H4a1 1 0 0 0 0 2h16a1 1 0 1 0 0-2Zm0 7H4a1 1 0 0 0 0 2h16a1 1 0 1 0 0-2Z"/></svg>
+    </button>
+    <h1>🔎 Search Terms Analytics</h1>
+  </div>
   <div class="header-search">
     <div class="filter header-filter term-search" data-col-wrapper="term">
       <label data-col-label="term" data-default="Search Term" class="sr-only">Search Term</label>
