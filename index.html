@@ -57,10 +57,32 @@ button:disabled{opacity:.5;cursor:not-allowed}
 /* Header */
 .app-header{display:grid;grid-template-columns:auto minmax(260px,1fr) auto;align-items:center;gap:clamp(12px,2vw,24px);padding:12px clamp(14px,3vw,28px);border-bottom:1px solid var(--border);background:var(--header-grad);position:sticky;top:0;backdrop-filter:blur(6px);z-index:20}
 .header-title{display:flex;align-items:center;gap:10px;min-width:0}
-.menu-btn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--panel) 85%, var(--chip));box-shadow:var(--shadow);color:var(--text);transition:transform .12s ease, box-shadow .25s ease, background .2s ease}
+.menu-btn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--panel) 85%, var(--chip));box-shadow:var(--shadow);color:var(--text);transition:transform .2s ease, box-shadow .25s ease, background .2s ease}
 .menu-btn:hover{transform:translateY(-1px);box-shadow:0 12px 28px rgba(0,0,0,.28);background:color-mix(in srgb,var(--chip) 90%, var(--panel))}
 .menu-btn:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-.menu-btn svg{width:18px;height:18px;fill:currentColor}
+.menu-btn.is-active{background:color-mix(in srgb,var(--accent) 16%, var(--panel));color:var(--accent);box-shadow:0 14px 28px rgba(37,99,235,.24)}
+.menu-icon{width:22px;height:18px;display:flex;flex-direction:column;justify-content:space-between;position:relative}
+.menu-icon span{display:block;height:2px;background:currentColor;border-radius:1px;transition:transform .3s cubic-bezier(.4,0,.2,1),opacity .3s cubic-bezier(.4,0,.2,1)}
+.menu-btn.is-active .menu-icon span:nth-child(1){transform:translateY(8px) rotate(45deg)}
+.menu-btn.is-active .menu-icon span:nth-child(2){opacity:0}
+.menu-btn.is-active .menu-icon span:nth-child(3){transform:translateY(-8px) rotate(-45deg)}
+.menu-control{display:inline-flex;align-items:center;gap:10px;position:relative}
+.menu-label{font-weight:700;color:var(--muted);font-size:13px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.menu-panel{position:absolute;top:calc(100% + 12px);left:0;z-index:120;min-width:240px;background:var(--panel);border:1px solid var(--border-strong);border-radius:14px;box-shadow:var(--shadow);padding:14px;display:flex;flex-direction:column;gap:12px;opacity:0;transform:translateY(-8px);pointer-events:none;transition:opacity .22s ease, transform .22s ease}
+.menu-panel.open{opacity:1;transform:translateY(0);pointer-events:auto}
+.menu-panel-header{font-weight:800;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+.menu-options{display:flex;flex-direction:column;gap:8px}
+.menu-option{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;cursor:pointer;transition:background .2s ease, transform .12s ease, box-shadow .25s ease;border:1px solid transparent}
+.menu-option:hover{background:color-mix(in srgb,var(--chip) 86%, transparent);transform:translateY(-1px);box-shadow:0 10px 24px rgba(15,23,42,.18)}
+.menu-option input{position:relative;appearance:none;width:18px;height:18px;border-radius:50%;border:2px solid color-mix(in srgb,var(--muted) 70%, var(--border));display:grid;place-items:center;transition:border-color .2s ease, background .2s ease;cursor:pointer}
+.menu-option input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.menu-option input::after{content:"";width:8px;height:8px;border-radius:50%;background:transparent;transition:background .2s ease}
+.menu-option input:checked{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%, transparent)}
+.menu-option input:checked::after{background:var(--accent)}
+.menu-option-text{display:flex;flex-direction:column;gap:2px}
+.menu-option-title{font-weight:700;color:var(--text)}
+.menu-option-desc{font-size:12px;color:var(--muted)}
+.menu-option.is-active{border-color:color-mix(in srgb,var(--accent) 45%, var(--border));box-shadow:0 12px 28px rgba(37,99,235,.18)}
 .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .header-search{display:flex;justify-content:center;min-width:0}
 .header-filter{grid-template-columns:1fr;min-width:0;width:min(420px,100%)}
@@ -365,9 +387,36 @@ body.has-data #tipPill{display:none !important}
 
 <header id="appHeader" class="app-header">
   <div class="header-title">
-    <button type="button" class="menu-btn" aria-label="Toggle menu">
-      <svg viewBox="0 0 24 24" role="img" aria-hidden="true"><path d="M4 6h16a1 1 0 1 0 0-2H4a1 1 0 0 0 0 2Zm16 5H4a1 1 0 0 0 0 2h16a1 1 0 1 0 0-2Zm0 7H4a1 1 0 0 0 0 2h16a1 1 0 1 0 0-2Z"/></svg>
-    </button>
+    <div class="menu-control">
+      <button type="button" class="menu-btn" id="menuToggle" aria-label="Toggle data menu" aria-haspopup="menu" aria-controls="datasetMenu" aria-expanded="false">
+        <span class="menu-icon" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
+        </span>
+        <span class="sr-only">Toggle data menu</span>
+      </button>
+      <span id="datasetCurrent" class="menu-label">Products Search Term</span>
+      <div id="datasetMenu" class="menu-panel" role="menu" aria-labelledby="menuToggle" aria-hidden="true" hidden>
+        <div class="menu-panel-header">Choose a dataset</div>
+        <form id="datasetMenuForm" class="menu-options" role="none">
+          <label class="menu-option">
+            <input type="radio" name="datasetOption" value="search" checked />
+            <span class="menu-option-text">
+              <span class="menu-option-title">Products Search Term</span>
+              <span class="menu-option-desc">Search term performance data</span>
+            </span>
+          </label>
+          <label class="menu-option">
+            <input type="radio" name="datasetOption" value="advertised" />
+            <span class="menu-option-text">
+              <span class="menu-option-title">Products Advertised Product</span>
+              <span class="menu-option-desc">Advertised product performance</span>
+            </span>
+          </label>
+        </form>
+      </div>
+    </div>
     <h1>🔎 Search Terms Analytics</h1>
   </div>
   <div class="header-search">
@@ -2102,6 +2151,10 @@ const el={
     empty:document.getElementById('pivotFilterPopupEmpty'),
     clear:document.getElementById('pivotFilterPopupClear')
   },
+  menuToggle:document.getElementById('menuToggle'),
+  menuPanel:document.getElementById('datasetMenu'),
+  menuForm:document.getElementById('datasetMenuForm'),
+  menuLabel:document.getElementById('datasetCurrent'),
   pickLocalBtn:document.getElementById('pickLocalBtn'),
   fileInput:document.getElementById('fileInput'),
   dlCsv:document.getElementById('downloadCsvBtn'),
@@ -2166,7 +2219,9 @@ const state={
   activePivotPopup:null,
   activePivotModal:null,
   filtersReturn:null,
-  sql:{db:null, table:'', columns:[], columnMap:new Map(), rowCount:0}
+  sql:{db:null, table:'', columns:[], columnMap:new Map(), rowCount:0},
+  activeWorkbookOption:'search',
+  customWorkbookLabel:''
 };
 const TAB_ORDER=['overview','overall','campaignPortfolio','targeting'];
 const PIVOT_SORT_KEYS=new Set(['label','sku','spend','sales','acos']);
@@ -2212,12 +2267,27 @@ const INITIAL_FILTER_KEYS=(()=>{
 const FILTER_BACKFILL_CHUNK_SIZE=3;
 let filterBackfillToken=0;
 const pivotFilterPopupState={slot:'', options:[], filtered:[], dimension:null, button:null, displayName:'', search:'', mode:'dimension', dateTab:'months'};
+const WORKBOOK_OPTIONS=[
+  {
+    id:'search',
+    label:'Products Search Term',
+    description:'Search term performance data',
+    file:'Products Search Term.xlsx',
+    aliases:['Product Search Term.xlsx']
+  },
+  {
+    id:'advertised',
+    label:'Products Advertised Product',
+    description:'Advertised product performance',
+    file:'Products Advertised Product.xlsx'
+  }
+];
+const WORKBOOK_OPTION_MAP=new Map(WORKBOOK_OPTIONS.map(opt=>[opt.id,opt]));
 const DEFAULT_PREPROCESSED_DATA=[
   'preprocessed/search_terms.json'
 ];
 const DEFAULT_WORKBOOKS=[
-  'Product Search Term.xlsx',
-  'Products Search Term.xlsx'
+  ...new Set(WORKBOOK_OPTIONS.flatMap(opt=>[opt.file,...(opt.aliases||[])]))
 ];
 const ASIN_SKU_WORKBOOK='ASINwise SKU.xlsx';
 const ADVERTISED_PRODUCTS_WORKBOOK='Products Advertised Product.xlsx';
@@ -2226,6 +2296,164 @@ let advertisedProductsPromise=null;
 let defaultWorkbookPromise=null;
 let defaultWorkbookTimer=null;
 let loadingDepth=0;
+
+function getWorkbookOption(id){
+  if(!id) return null;
+  return WORKBOOK_OPTION_MAP.get(id)||null;
+}
+
+function findWorkbookOptionByFile(file){
+  if(!file) return null;
+  const normalized=String(file).trim().toLowerCase();
+  return WORKBOOK_OPTIONS.find(opt=>{
+    const names=[opt.file,...(opt.aliases||[])];
+    return names.some(name=>String(name).trim().toLowerCase()===normalized);
+  })||null;
+}
+
+function updateDatasetDisplay(){
+  const labelEl=el.menuLabel;
+  const toggle=el.menuToggle;
+  const option=state.activeWorkbookOption?getWorkbookOption(state.activeWorkbookOption):null;
+  let label='Choose dataset';
+  if(state.customWorkbookLabel){
+    label=state.customWorkbookLabel;
+  }else if(option){
+    label=option.label;
+  }
+  if(labelEl) labelEl.textContent=label;
+  if(toggle){
+    let aria='Toggle data menu';
+    if(state.customWorkbookLabel){
+      aria+=`. Custom workbook: ${state.customWorkbookLabel}`;
+    }else if(option){
+      aria+=`. Current selection: ${option.label}`;
+    }
+    toggle.setAttribute('aria-label', aria);
+  }
+  if(el.menuForm){
+    const inputs=Array.from(el.menuForm.querySelectorAll('input[name="datasetOption"]'));
+    let fallbackInput=null;
+    inputs.forEach((input,index)=>{
+      const checked=!!state.activeWorkbookOption && input.value===state.activeWorkbookOption;
+      input.checked=checked;
+      input.setAttribute('aria-checked', checked?'true':'false');
+      input.setAttribute('role','menuitemradio');
+      input.setAttribute('tabindex', checked?'0':'-1');
+      if(checked) input.parentElement?.classList.add('is-active');
+      else input.parentElement?.classList.remove('is-active');
+      if(index===0) fallbackInput=input;
+    });
+    if(!state.activeWorkbookOption && fallbackInput){
+      fallbackInput.setAttribute('tabindex','0');
+    }
+  }
+}
+
+function setActiveWorkbookOption(id){
+  state.activeWorkbookOption=id||null;
+  if(id) state.customWorkbookLabel='';
+  updateDatasetDisplay();
+}
+
+function setCustomWorkbookLabel(label){
+  state.customWorkbookLabel=label?String(label):'';
+  if(label){
+    state.activeWorkbookOption=null;
+  }
+  updateDatasetDisplay();
+}
+
+function isDatasetMenuOpen(){
+  return !!el.menuPanel && el.menuPanel.classList.contains('open');
+}
+
+function toggleDatasetMenu(force){
+  const open=typeof force==='boolean'?force:!isDatasetMenuOpen();
+  if(!el.menuPanel || !el.menuToggle) return;
+  if(open){
+    el.menuPanel.classList.add('open');
+    el.menuPanel.removeAttribute('hidden');
+    el.menuPanel.setAttribute('aria-hidden','false');
+    el.menuToggle.classList.add('is-active');
+    el.menuToggle.setAttribute('aria-expanded','true');
+    clampPanelRight(el.menuPanel);
+    const firstInput=el.menuPanel.querySelector('input[name="datasetOption"]');
+    if(firstInput) firstInput.focus({preventScroll:true});
+  }else{
+    el.menuPanel.classList.remove('open');
+    el.menuPanel.setAttribute('hidden','');
+    el.menuPanel.setAttribute('aria-hidden','true');
+    el.menuToggle.classList.remove('is-active');
+    el.menuToggle.setAttribute('aria-expanded','false');
+  }
+}
+
+function closeDatasetMenu(focusToggle=false){
+  if(!isDatasetMenuOpen()) return false;
+  toggleDatasetMenu(false);
+  if(focusToggle && el.menuToggle){
+    try{ el.menuToggle.focus({preventScroll:true}); }
+    catch(_){ el.menuToggle.focus(); }
+  }
+  return true;
+}
+
+async function fetchWorkbookBuffer(file){
+  if(!file) throw new Error('Workbook path missing');
+  let targetUrl;
+  try{
+    targetUrl=new URL(file, document.baseURI).href;
+  }catch(_){
+    targetUrl=encodeURI(file);
+  }
+  const response=await fetch(targetUrl,{cache:'no-store'});
+  if(!response.ok && response.status!==0){
+    throw new Error(`Workbook not available: ${file}`);
+  }
+  return await response.arrayBuffer();
+}
+
+async function loadWorkbookOption(option){
+  if(!option) return false;
+  const buf=await fetchWorkbookBuffer(option.file);
+  await loadWorkbookBuffer(buf);
+  setActiveWorkbookOption(option.id);
+  return true;
+}
+
+async function handleDatasetMenuChange(ev){
+  const input=ev.target;
+  if(!input || input.name!=='datasetOption') return;
+  ev.preventDefault();
+  const value=input.value;
+  const option=value?getWorkbookOption(value):null;
+  if(!option){
+    closeDatasetMenu(false);
+    return;
+  }
+  if(state.activeWorkbookOption===option.id){
+    closeDatasetMenu(false);
+    return;
+  }
+  const previousOption=state.activeWorkbookOption;
+  const previousCustom=state.customWorkbookLabel;
+  closeDatasetMenu(false);
+  showLoading(true);
+  try{
+    await loadWorkbookOption(option);
+  }catch(err){
+    console.error('Failed to load workbook option:', err);
+    alert('Failed to load workbook: '+(err?.message||err));
+    if(previousOption){
+      setActiveWorkbookOption(previousOption);
+    }else{
+      setCustomWorkbookLabel(previousCustom||'');
+    }
+  }finally{
+    showLoading(false);
+  }
+}
 
 function ensureAsinSkuMap(){
   if(state.asinSkuLoaded){
@@ -2577,6 +2805,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const saved=localStorage.getItem('theme')||'dark';
   if(saved==='light') document.body.classList.add('light');
   updateThemeBtn();
+  updateDatasetDisplay();
   el.themeBtn.addEventListener('click',()=>{
     document.body.classList.toggle('light');
     localStorage.setItem('theme', document.body.classList.contains('light')?'light':'dark');
@@ -2889,8 +3118,19 @@ function boot(){
   }
   if(el.monthCustomApply) el.monthCustomApply.addEventListener('click', applyCustomRangeFromInputs);
   if(el.monthCustomCancel) el.monthCustomCancel.addEventListener('click', handleCustomRangeCancel);
+  if(el.menuForm) el.menuForm.addEventListener('change', handleDatasetMenuChange);
 
   document.addEventListener('click', (e)=>{
+    const toggle=el.menuToggle;
+    const menuRoot=el.menuPanel;
+    const clickedToggle=toggle?.contains?.(e.target);
+    const clickedMenu=menuRoot?.contains?.(e.target);
+    if(clickedToggle){
+      e.preventDefault();
+      toggleDatasetMenu();
+    }else if(menuRoot && menuRoot.classList.contains('open') && !clickedMenu){
+      closeDatasetMenu(false);
+    }
     const monthRoot=el.monthDD;
     const clickedInsideMonth=monthRoot?.contains?.(e.target);
     if(monthRoot && !clickedInsideMonth && monthRoot.classList.contains('open')){
@@ -2937,6 +3177,11 @@ function boot(){
 
   document.addEventListener('keydown', (ev)=>{
     if(ev.key==='Escape' || ev.key==='Esc'){
+      if(closeDatasetMenu(true)){
+        ev.stopPropagation();
+        ev.preventDefault();
+        return;
+      }
       if(closePivotFilterPopup(false)){
         ev.stopPropagation();
         ev.preventDefault();
@@ -3067,6 +3312,7 @@ async function handleLocalFile(e){
     showLoading(true);
     const buf = await f.arrayBuffer();
     await loadWorkbookBuffer(buf);
+    setCustomWorkbookLabel(f.name||'Custom Workbook');
   }catch(err){
     console.error(err);
     alert('Failed to parse Excel: '+(err?.message||err));
@@ -3109,6 +3355,7 @@ async function attemptPreprocessedData(){
         const headerRowIndex=Number.isInteger(payload?.header_row_index)?payload.header_row_index:1;
         await buildStateFromSheetData(sheetData,{headerRowIndex});
         setHasData(true);
+        setActiveWorkbookOption('search');
         return;
       }catch(err){
         console.warn(`Failed to load preprocessed data from ${file}:`, err);
@@ -3127,22 +3374,16 @@ async function attemptDefaultWorkbook(){
   try{
     for(const file of files){
       if(state.hasData) return;
-      let targetUrl;
       try{
-        targetUrl=new URL(file, document.baseURI).href;
-      }catch(_){
-        targetUrl=encodeURI(file);
-      }
-      try{
-        const response=await fetch(targetUrl,{cache:'no-store'});
-        if(!response.ok && response.status!==0){
-          console.warn(`Default workbook not available: ${file}`);
-          continue;
-        }
-        if(state.hasData) return;
-        const buf=await response.arrayBuffer();
+        const buf=await fetchWorkbookBuffer(file);
         if(state.hasData) return;
         await loadWorkbookBuffer(buf);
+        const matchedOption=findWorkbookOptionByFile(file);
+        if(matchedOption){
+          setActiveWorkbookOption(matchedOption.id);
+        }else{
+          setCustomWorkbookLabel(file);
+        }
         if(state.hasData) return;
         return;
       }catch(err){
