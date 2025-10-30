@@ -2345,6 +2345,7 @@ const DEFAULT_WORKBOOKS=[
 ];
 const ASIN_SKU_WORKBOOK='ASINwise SKU.xlsx';
 const ADVERTISED_PRODUCTS_WORKBOOK='Products Advertised Product.xlsx';
+const ADVERTISED_PRODUCTS_JSON='advertised-products.json';
 let asinSkuPromise=null;
 let advertisedProductsPromise=null;
 let defaultWorkbookPromise=null;
@@ -2464,14 +2465,20 @@ function closeDatasetMenu(focusToggle=false){
   return true;
 }
 
+function resolveAssetUrl(file){
+  if(!file) return '';
+  const trimmed=String(file).trim();
+  if(!trimmed) return '';
+  try{
+    return new URL(trimmed, document.baseURI).href;
+  }catch(_){
+    return encodeURI(trimmed);
+  }
+}
+
 async function fetchWorkbookBuffer(file){
   if(!file) throw new Error('Workbook path missing');
-  let targetUrl;
-  try{
-    targetUrl=new URL(file, document.baseURI).href;
-  }catch(_){
-    targetUrl=encodeURI(file);
-  }
+  const targetUrl=resolveAssetUrl(file);
   const response=await fetch(targetUrl,{cache:'no-store'});
   if(!response.ok && response.status!==0){
     throw new Error(`Workbook not available: ${file}`);
@@ -2547,12 +2554,7 @@ async function loadAsinSkuWorkbook(){
   const file=ASIN_SKU_WORKBOOK && ASIN_SKU_WORKBOOK.trim();
   if(!file) return new Map();
   try{
-    let targetUrl;
-    try{
-      targetUrl=new URL(file, document.baseURI).href;
-    }catch(_){
-      targetUrl=encodeURI(file);
-    }
+    const targetUrl=resolveAssetUrl(file);
     const response=await fetch(targetUrl,{cache:'no-store'});
     if(!response.ok && response.status!==0) throw new Error('ASIN SKU workbook not found');
     const buf=await response.arrayBuffer();
@@ -2643,6 +2645,41 @@ function normalizeSkuKey(value){
   return value==null ? '' : String(value).trim().toLowerCase();
 }
 
+function createAdvertisedProductEntry(campaign, adGroup, sku, asin){
+  const safeCampaign=String(campaign??'').trim();
+  const safeAdGroup=String(adGroup??'').trim();
+  const safeSku=String(sku??'').trim();
+  const safeAsin=String(asin??'').trim();
+  return {
+    campaign:safeCampaign,
+    adGroup:safeAdGroup,
+    sku:safeSku,
+    asin:safeAsin,
+    campaignKey:normalizeAdvertisedKey(safeCampaign),
+    adGroupKey:normalizeAdvertisedKey(safeAdGroup)
+  };
+}
+
+function normalizeAdvertisedProductRows(rows){
+  if(!Array.isArray(rows)) return [];
+  const seen=new Set();
+  const result=[];
+  rows.forEach(item=>{
+    if(!item) return;
+    const campaign=String(item.campaign??item.Campaign??'').trim();
+    const adGroup=String(item.adGroup??item.AdGroup??item.adgroup??'').trim();
+    const sku=String(item.sku??item.SKU??item.advertisedSku??'').trim();
+    const asin=String(item.asin??item.ASIN??'').trim();
+    if(!campaign && !adGroup) return;
+    if(!sku && !asin) return;
+    const key=[campaign.toLowerCase(),adGroup.toLowerCase(),sku.toLowerCase(),asin.toLowerCase()].join('¦');
+    if(seen.has(key)) return;
+    seen.add(key);
+    result.push(createAdvertisedProductEntry(campaign, adGroup, sku, asin));
+  });
+  return result;
+}
+
 function lookupAsinSkus(value){
   const key=normalizeAsinKey(value);
   if(!key) return null;
@@ -2677,7 +2714,7 @@ function ensureAdvertisedProductsData(){
   if(advertisedProductsPromise){
     return advertisedProductsPromise;
   }
-  advertisedProductsPromise=loadAdvertisedProductsWorkbook().then(rows=>{
+  advertisedProductsPromise=loadAdvertisedProductsData().then(rows=>{
     if(entry){
       entry.rows=Array.isArray(rows)?rows:[];
       entry.loaded=true;
@@ -2699,12 +2736,7 @@ function ensureAdvertisedProductsData(){
 async function loadAdvertisedProductsWorkbook(){
   const file=ADVERTISED_PRODUCTS_WORKBOOK && ADVERTISED_PRODUCTS_WORKBOOK.trim();
   if(!file) return [];
-  let targetUrl;
-  try{
-    targetUrl=new URL(file, document.baseURI).href;
-  }catch(_){
-    targetUrl=encodeURI(file);
-  }
+  const targetUrl=resolveAssetUrl(file);
   const response=await fetch(targetUrl,{cache:'no-store'});
   if(!response.ok && response.status!==0) throw new Error('Advertised product workbook not found');
   const buf=await response.arrayBuffer();
@@ -2752,7 +2784,7 @@ async function loadAdvertisedProductsWorkbook(){
   }
   if(idxCampaign<0 && idxAdGroup<0) return [];
   if(idxSku<0 && idxAsin<0) return [];
-  const data=[];
+  const rawRows=[];
   for(let i=headerIndex+1;i<rows.length;i++){
     const row=Array.isArray(rows[i])?rows[i]:[];
     const campaign=idxCampaign>-1?String(row[idxCampaign]??'').trim():'';
@@ -2761,16 +2793,43 @@ async function loadAdvertisedProductsWorkbook(){
     const asin=idxAsin>-1?String(row[idxAsin]??'').trim():'';
     if(!campaign && !adGroup) continue;
     if(!sku && !asin) continue;
-    data.push({
+    rawRows.push({
       campaign,
       adGroup,
       sku,
-      asin,
-      campaignKey:normalizeAdvertisedKey(campaign),
-      adGroupKey:normalizeAdvertisedKey(adGroup)
+      asin
     });
   }
-  return data;
+  return normalizeAdvertisedProductRows(rawRows);
+}
+
+async function loadAdvertisedProductsJson(){
+  const file=ADVERTISED_PRODUCTS_JSON && ADVERTISED_PRODUCTS_JSON.trim();
+  if(!file) return null;
+  const targetUrl=resolveAssetUrl(file);
+  try{
+    const response=await fetch(targetUrl,{cache:'no-store'});
+    if(!response.ok && response.status!==0){
+      if(response.status!==404){
+        console.warn(`Advertised products JSON unavailable: ${file} (status ${response.status})`);
+      }
+      return null;
+    }
+    const payload=await response.json();
+    const rawRows=Array.isArray(payload?.rows)?payload.rows:(Array.isArray(payload)?payload:[]);
+    return normalizeAdvertisedProductRows(rawRows);
+  }catch(err){
+    console.warn('Advertised products JSON load failed:', err);
+    return null;
+  }
+}
+
+async function loadAdvertisedProductsData(){
+  const jsonRows=await loadAdvertisedProductsJson();
+  if(jsonRows!==null){
+    return jsonRows;
+  }
+  return await loadAdvertisedProductsWorkbook();
 }
 
 function skuEntriesToValues(entries){
@@ -3447,12 +3506,7 @@ async function attemptPreprocessedData(){
   try{
     for(const file of files){
       if(state.hasData) return;
-      let targetUrl;
-      try{
-        targetUrl=new URL(file, document.baseURI).href;
-      }catch(_){
-        targetUrl=encodeURI(file);
-      }
+      const targetUrl=resolveAssetUrl(file);
       try{
         const response=await fetch(targetUrl,{cache:'no-store'});
         if(!response.ok && response.status!==0){
