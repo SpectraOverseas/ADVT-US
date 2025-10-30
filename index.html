@@ -2464,19 +2464,86 @@ function closeDatasetMenu(focusToggle=false){
   return true;
 }
 
+function normalizeWorkbookPath(file){
+  return String(file??'').trim().replace(/^\.\/+/, '');
+}
+
+function getWorkbookCandidateUrls(file){
+  const normalized=normalizeWorkbookPath(file);
+  if(!normalized) return [];
+  const urls=new Set();
+  const isAbsolute=/^(?:[a-z]+:)?\/\//i.test(normalized);
+  const isRootRelative=normalized.startsWith('/');
+  const addUrl=(candidate, base)=>{
+    if(!candidate) return;
+    try{
+      const resolved=base?new URL(candidate, base).href:new URL(candidate, document.baseURI).href;
+      urls.add(resolved);
+    }catch(err){
+      if(typeof window!=='undefined' && window.location){
+        try{
+          const fallbackBase=base||window.location.href;
+          const resolved=new URL(candidate, fallbackBase).href;
+          urls.add(resolved);
+        }catch(_){/* ignore */}
+      }
+    }
+  };
+
+  if(isAbsolute){
+    addUrl(normalized);
+    return Array.from(urls);
+  }
+
+  addUrl(normalized);
+  if(!isRootRelative){
+    addUrl(`./${normalized}`);
+  }
+
+  if(typeof window!=='undefined' && window.location){
+    const {origin, pathname}=window.location;
+    if(origin && pathname){
+      const dir=pathname.endsWith('/')?pathname:pathname.replace(/[^/]+$/, '');
+      if(dir){
+        addUrl(normalized, `${origin}${dir}`);
+      }
+      addUrl(normalized, `${origin}/`);
+    }
+  }
+
+  if(typeof document!=='undefined' && document.currentScript?.src){
+    try{
+      const scriptUrl=new URL(document.currentScript.src, window?.location?.href||document.baseURI);
+      const scriptDir=scriptUrl.href.replace(/[^/]+$/, '');
+      addUrl(normalized, scriptDir);
+    }catch(_){/* ignore */}
+  }
+
+  return Array.from(urls);
+}
+
 async function fetchWorkbookBuffer(file){
-  if(!file) throw new Error('Workbook path missing');
-  let targetUrl;
-  try{
-    targetUrl=new URL(file, document.baseURI).href;
-  }catch(_){
-    targetUrl=encodeURI(file);
+  const candidates=getWorkbookCandidateUrls(file);
+  if(!candidates.length) throw new Error('Workbook path missing');
+  let lastError=null;
+  for(const url of candidates){
+    try{
+      const response=await fetch(url,{cache:'no-store'});
+      if(!response.ok && response.status!==0){
+        lastError=new Error(`HTTP ${response.status}`);
+        continue;
+      }
+      const buf=await response.arrayBuffer();
+      if(buf && buf.byteLength){
+        return buf;
+      }
+      lastError=new Error('Empty workbook response');
+    }catch(err){
+      lastError=err;
+    }
   }
-  const response=await fetch(targetUrl,{cache:'no-store'});
-  if(!response.ok && response.status!==0){
-    throw new Error(`Workbook not available: ${file}`);
-  }
-  return await response.arrayBuffer();
+  console.error('Workbook fetch failed for', file, 'attempts:', candidates, 'last error:', lastError);
+  throw new Error(`Workbook not available: ${file}`);
 }
 
 async function loadWorkbookOption(option){
@@ -2547,15 +2614,7 @@ async function loadAsinSkuWorkbook(){
   const file=ASIN_SKU_WORKBOOK && ASIN_SKU_WORKBOOK.trim();
   if(!file) return new Map();
   try{
-    let targetUrl;
-    try{
-      targetUrl=new URL(file, document.baseURI).href;
-    }catch(_){
-      targetUrl=encodeURI(file);
-    }
-    const response=await fetch(targetUrl,{cache:'no-store'});
-    if(!response.ok && response.status!==0) throw new Error('ASIN SKU workbook not found');
-    const buf=await response.arrayBuffer();
+    const buf=await fetchWorkbookBuffer(file);
     const wb=XLSX.read(buf,{type:'array',cellDates:false,cellNF:false,cellText:false});
     if(!wb.SheetNames || !wb.SheetNames.length) return new Map();
     const ws=wb.Sheets[wb.SheetNames[0]];
@@ -2699,15 +2758,12 @@ function ensureAdvertisedProductsData(){
 async function loadAdvertisedProductsWorkbook(){
   const file=ADVERTISED_PRODUCTS_WORKBOOK && ADVERTISED_PRODUCTS_WORKBOOK.trim();
   if(!file) return [];
-  let targetUrl;
+  let buf;
   try{
-    targetUrl=new URL(file, document.baseURI).href;
-  }catch(_){
-    targetUrl=encodeURI(file);
+    buf=await fetchWorkbookBuffer(file);
+  }catch(err){
+    throw new Error('Advertised product workbook not found');
   }
-  const response=await fetch(targetUrl,{cache:'no-store'});
-  if(!response.ok && response.status!==0) throw new Error('Advertised product workbook not found');
-  const buf=await response.arrayBuffer();
   const wb=XLSX.read(buf,{type:'array',cellDates:false,cellNF:false,cellText:false});
   if(!wb.SheetNames || !wb.SheetNames.length) return [];
   const ws=wb.Sheets[wb.SheetNames[0]];
