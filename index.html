@@ -57,17 +57,19 @@ button:disabled{opacity:.5;cursor:not-allowed}
 /* Header */
 .app-header{display:grid;grid-template-columns:auto minmax(260px,1fr) auto;align-items:center;gap:clamp(12px,2vw,24px);padding:12px clamp(14px,3vw,28px);border-bottom:1px solid var(--border);background:var(--header-grad);position:sticky;top:0;backdrop-filter:blur(6px);z-index:20}
 .header-title{display:flex;align-items:center;gap:10px;min-width:0}
-.menu-btn{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--panel) 85%, var(--chip));box-shadow:var(--shadow);color:var(--text);transition:transform .2s ease, box-shadow .25s ease, background .2s ease}
-.menu-btn:hover{transform:translateY(-1px);box-shadow:0 12px 28px rgba(0,0,0,.28);background:color-mix(in srgb,var(--chip) 90%, var(--panel))}
-.menu-btn:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-.menu-btn.is-active{background:color-mix(in srgb,var(--accent) 16%, var(--panel));color:var(--accent);box-shadow:0 14px 28px rgba(37,99,235,.24)}
+.menu-toggle{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--panel) 85%, var(--chip));box-shadow:var(--shadow);color:var(--text);transition:transform .2s ease, box-shadow .25s ease, background .2s ease;cursor:pointer}
+.menu-toggle:hover{transform:translateY(-1px);box-shadow:0 12px 28px rgba(0,0,0,.28);background:color-mix(in srgb,var(--chip) 90%, var(--panel))}
+.menu-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.menu-toggle.is-active{background:color-mix(in srgb,var(--accent) 16%, var(--panel));color:var(--accent);box-shadow:0 14px 28px rgba(37,99,235,.24)}
 .menu-icon{width:22px;height:18px;display:flex;flex-direction:column;justify-content:space-between;position:relative}
 .menu-icon span{display:block;height:2px;background:currentColor;border-radius:1px;transition:transform .3s cubic-bezier(.4,0,.2,1),opacity .3s cubic-bezier(.4,0,.2,1)}
-.menu-btn.is-active .menu-icon span:nth-child(1){transform:translateY(8px) rotate(45deg)}
-.menu-btn.is-active .menu-icon span:nth-child(2){opacity:0}
-.menu-btn.is-active .menu-icon span:nth-child(3){transform:translateY(-8px) rotate(-45deg)}
+.menu-toggle.is-active .menu-icon span:nth-child(1){transform:translateY(8px) rotate(45deg)}
+.menu-toggle.is-active .menu-icon span:nth-child(2){opacity:0}
+.menu-toggle.is-active .menu-icon span:nth-child(3){transform:translateY(-8px) rotate(-45deg)}
 .menu-control{display:inline-flex;align-items:center;gap:10px;position:relative}
-.menu-label{font-weight:700;color:var(--muted);font-size:13px;white-space:nowrap;max-width:180px;overflow:hidden;text-overflow:ellipsis}
+.header-title-icon{font-size:1.4em;line-height:1}
+#headerTitle{display:flex;align-items:center;gap:8px;min-width:0}
+#headerTitleText{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .menu-panel{position:absolute;top:calc(100% + 12px);left:0;z-index:120;min-width:240px;background:var(--panel);border:1px solid var(--border-strong);border-radius:14px;box-shadow:var(--shadow);padding:14px;display:flex;flex-direction:column;gap:12px;opacity:0;transform:translateY(-8px);pointer-events:none;transition:opacity .22s ease, transform .22s ease}
 .menu-panel.open{opacity:1;transform:translateY(0);pointer-events:auto}
 .menu-panel-header{font-weight:800;font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
@@ -388,15 +390,14 @@ body.has-data #tipPill{display:none !important}
 <header id="appHeader" class="app-header">
   <div class="header-title">
     <div class="menu-control">
-      <button type="button" class="menu-btn" id="menuToggle" aria-label="Toggle data menu" aria-haspopup="menu" aria-controls="datasetMenu" aria-expanded="false">
+      <div class="menu-toggle" id="menuToggle" role="button" tabindex="0" aria-label="Toggle data menu" aria-haspopup="menu" aria-controls="datasetMenu" aria-expanded="false">
         <span class="menu-icon" aria-hidden="true">
           <span></span>
           <span></span>
           <span></span>
         </span>
         <span class="sr-only">Toggle data menu</span>
-      </button>
-      <span id="datasetCurrent" class="menu-label">Products Search Term</span>
+      </div>
       <div id="datasetMenu" class="menu-panel" role="menu" aria-labelledby="menuToggle" aria-hidden="true" hidden>
         <div class="menu-panel-header">Choose a dataset</div>
         <form id="datasetMenuForm" class="menu-options" role="none">
@@ -417,7 +418,10 @@ body.has-data #tipPill{display:none !important}
         </form>
       </div>
     </div>
-    <h1>🔎 Search Terms Analytics</h1>
+    <h1 id="headerTitle">
+      <span id="headerTitleIcon" class="header-title-icon" aria-hidden="true">🔎</span>
+      <span id="headerTitleText" class="header-title-text">Search Terms Analytics</span>
+    </h1>
   </div>
   <div class="header-search">
     <div class="filter header-filter term-search" data-col-wrapper="term">
@@ -2103,6 +2107,9 @@ const el={
     list:document.getElementById('pivotTabs'),
     buttons:[]
   },
+  headerTitle:document.getElementById('headerTitle'),
+  headerTitleText:document.getElementById('headerTitleText'),
+  headerTitleIcon:document.getElementById('headerTitleIcon'),
   status:document.getElementById('statusArea'),
   statusProgress:document.getElementById('statusProgress'),
   kpis:document.getElementById('kpiSection'),
@@ -2154,7 +2161,6 @@ const el={
   menuToggle:document.getElementById('menuToggle'),
   menuPanel:document.getElementById('datasetMenu'),
   menuForm:document.getElementById('datasetMenuForm'),
-  menuLabel:document.getElementById('datasetCurrent'),
   pickLocalBtn:document.getElementById('pickLocalBtn'),
   fileInput:document.getElementById('fileInput'),
   dlCsv:document.getElementById('downloadCsvBtn'),
@@ -2223,7 +2229,6 @@ const state={
   activeWorkbookOption:'search',
   customWorkbookLabel:''
 };
-const TAB_ORDER=['overview','overall','campaignPortfolio','targeting'];
 const PIVOT_SORT_KEYS=new Set(['label','sku','spend','sales','acos']);
 
 const kpiSparkCache=new Map();
@@ -2234,7 +2239,7 @@ let lastKpiSeries=null;
 let pivotLayoutFrame=null;
 let skuSyncing=false;
 if(el.tabs?.list){ el.tabs.buttons = Array.from(el.tabs.list.querySelectorAll('[data-tab]')); }
-const PIVOT_CONFIG={
+const SEARCH_PIVOT_CONFIG={
   overview:[
     {slot:'store', column:'store', fallback:'Store'},
     {slot:'portfolio', column:'portfolio', fallback:'Portfolio Name', options:{caseInsensitive:true}},
@@ -2259,11 +2264,60 @@ const PIVOT_CONFIG={
 };
 const INITIAL_FILTER_KEYS=(()=>{
   const keys=new Set(['term']);
-  (PIVOT_CONFIG.overview||[]).forEach(cfg=>{
+  (SEARCH_PIVOT_CONFIG.overview||[]).forEach(cfg=>{
     if(cfg?.column) keys.add(cfg.column);
   });
   return Array.from(keys);
 })();
+const ADVERTISED_PIVOT_CONFIG={
+  overview:SEARCH_PIVOT_CONFIG.overview,
+  campaignPortfolio:SEARCH_PIVOT_CONFIG.campaignPortfolio
+};
+const DATASET_CONFIG={
+  search:{
+    title:'Search Terms Analytics',
+    pageTitle:'Search Terms Analytics',
+    icon:'🔎',
+    tabOrder:['overview','overall','campaignPortfolio','targeting'],
+    pivotConfig:SEARCH_PIVOT_CONFIG
+  },
+  advertised:{
+    title:'Advertised Products Analytics',
+    pageTitle:'Advertised Products Analytics',
+    icon:'📦',
+    tabOrder:['overview','campaignPortfolio'],
+    pivotConfig:ADVERTISED_PIVOT_CONFIG
+  }
+};
+const DEFAULT_DATASET_KEY='search';
+
+function getDatasetConfigForKey(key){
+  return DATASET_CONFIG[key] || DATASET_CONFIG[DEFAULT_DATASET_KEY];
+}
+
+function getActiveDatasetKey(){
+  const key=state.activeWorkbookOption;
+  if(key && DATASET_CONFIG[key]) return key;
+  return DEFAULT_DATASET_KEY;
+}
+
+function getActiveDatasetConfig(){
+  const base=getDatasetConfigForKey(getActiveDatasetKey());
+  if(state.customWorkbookLabel){
+    return {
+      ...base,
+      title:state.customWorkbookLabel,
+      pageTitle:state.customWorkbookLabel,
+      icon:'📊'
+    };
+  }
+  return base;
+}
+
+function getActiveTabOrder(){
+  const config=getActiveDatasetConfig();
+  return Array.isArray(config.tabOrder) && config.tabOrder.length ? config.tabOrder : DATASET_CONFIG[DEFAULT_DATASET_KEY].tabOrder;
+}
 const FILTER_BACKFILL_CHUNK_SIZE=3;
 let filterBackfillToken=0;
 const pivotFilterPopupState={slot:'', options:[], filtered:[], dimension:null, button:null, displayName:'', search:'', mode:'dimension', dateTab:'months'};
@@ -2312,7 +2366,6 @@ function findWorkbookOptionByFile(file){
 }
 
 function updateDatasetDisplay(){
-  const labelEl=el.menuLabel;
   const toggle=el.menuToggle;
   const option=state.activeWorkbookOption?getWorkbookOption(state.activeWorkbookOption):null;
   let label='Choose dataset';
@@ -2321,15 +2374,26 @@ function updateDatasetDisplay(){
   }else if(option){
     label=option.label;
   }
-  if(labelEl) labelEl.textContent=label;
+  const datasetConfig=getActiveDatasetConfig();
+  const headerTitle=datasetConfig?.title || label;
   if(toggle){
     let aria='Toggle data menu';
-    if(state.customWorkbookLabel){
-      aria+=`. Custom workbook: ${state.customWorkbookLabel}`;
-    }else if(option){
-      aria+=`. Current selection: ${option.label}`;
+    if(label){
+      aria+=`. Current selection: ${label}`;
     }
     toggle.setAttribute('aria-label', aria);
+  }
+  if(el.headerTitleText){
+    el.headerTitleText.textContent=headerTitle || '';
+  }
+  if(el.headerTitleIcon){
+    const iconValue=datasetConfig?.icon || '';
+    el.headerTitleIcon.textContent=iconValue;
+    el.headerTitleIcon.hidden=!iconValue;
+  }
+  if(typeof document!=='undefined' && datasetConfig){
+    const title=datasetConfig.pageTitle || headerTitle || document.title;
+    if(title) document.title=title;
   }
   if(el.menuForm){
     const inputs=Array.from(el.menuForm.querySelectorAll('input[name="datasetOption"]'));
@@ -2348,6 +2412,7 @@ function updateDatasetDisplay(){
       fallbackInput.setAttribute('tabindex','0');
     }
   }
+  updateTabsUI();
 }
 
 function setActiveWorkbookOption(id){
@@ -2823,35 +2888,57 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function setupTabs(){
+  if(el.tabs?.list){
+    el.tabs.buttons = Array.from(el.tabs.list.querySelectorAll('[data-tab]'));
+  }
   if(!el.tabs?.buttons?.length) return;
-  state.lastTabIndex = TAB_ORDER.indexOf(state.activeTab);
+  updateTabsUI();
   el.tabs.buttons.forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const tab=btn.dataset.tab;
       if(!tab || state.activeTab===tab) return;
-      const prevIndex = TAB_ORDER.indexOf(state.activeTab);
-      const newIndex = TAB_ORDER.indexOf(tab);
+      const order=getActiveTabOrder();
+      const prevIndex = order.indexOf(state.activeTab);
+      const newIndex = order.indexOf(tab);
       state.activeTab=tab;
       if(prevIndex>-1 && newIndex>-1 && prevIndex!==newIndex){
         animatePivot(newIndex>prevIndex?'forward':'backward');
       }
-      state.lastTabIndex=newIndex;
+      if(newIndex>-1) state.lastTabIndex=newIndex;
       updateTabsUI();
       renderAll();
     });
   });
-  updateTabsUI();
 }
 function updateTabsUI(){
   const buttons=el.tabs?.buttons||[];
+  const order=getActiveTabOrder();
+  if(!order.includes(state.activeTab)){
+    state.activeTab=order[0]||'overview';
+  }
   const active=state.activeTab||'overview';
+  let activeIndex=order.indexOf(active);
+  if(activeIndex<0) activeIndex=0;
+  state.lastTabIndex=activeIndex;
   buttons.forEach(btn=>{
     const tab=btn.dataset.tab;
+    const allowed=order.includes(tab);
+    btn.hidden=!allowed;
+    btn.setAttribute('aria-hidden', allowed?'false':'true');
+    if(!allowed){
+      btn.classList.remove('is-active');
+      btn.setAttribute('aria-selected','false');
+      btn.setAttribute('tabindex','-1');
+      return;
+    }
     const on=tab===active;
     btn.classList.toggle('is-active', on);
     btn.setAttribute('aria-selected', on?'true':'false');
     btn.setAttribute('tabindex', on?'0':'-1');
   });
+  if(el.tabs?.bar){
+    el.tabs.bar.hidden = order.length<=1;
+  }
 }
 function animatePivot(direction){
   const target=el.pivot?.section;
@@ -3066,7 +3153,11 @@ function showPivotCopySuccess(button){
   },1600);
   copyFeedbackTimers.set(button, timeout);
 }
-function getPivotConfig(){ return PIVOT_CONFIG[state.activeTab] || PIVOT_CONFIG.overview; }
+function getPivotConfig(){
+  const config=getActiveDatasetConfig()?.pivotConfig||SEARCH_PIVOT_CONFIG;
+  const fallback=config.overview||SEARCH_PIVOT_CONFIG.overview||[];
+  return config[state.activeTab] || fallback;
+}
 
 function boot(){
   setHasData(false);
@@ -3119,6 +3210,25 @@ function boot(){
   if(el.monthCustomApply) el.monthCustomApply.addEventListener('click', applyCustomRangeFromInputs);
   if(el.monthCustomCancel) el.monthCustomCancel.addEventListener('click', handleCustomRangeCancel);
   if(el.menuForm) el.menuForm.addEventListener('change', handleDatasetMenuChange);
+  if(el.menuToggle){
+    el.menuToggle.addEventListener('keydown', (event)=>{
+      if(event.key==='Enter' || event.key===' ' || event.key==='Spacebar'){
+        event.preventDefault();
+        toggleDatasetMenu();
+      }else if(event.key==='ArrowDown'){
+        event.preventDefault();
+        const wasOpen=isDatasetMenuOpen();
+        if(!wasOpen){
+          toggleDatasetMenu(true);
+        }
+        const firstInput=el.menuPanel?.querySelector('input[name="datasetOption"]');
+        if(firstInput){
+          try{ firstInput.focus({preventScroll:true}); }
+          catch(_){ firstInput.focus(); }
+        }
+      }
+    });
+  }
 
   document.addEventListener('click', (e)=>{
     const toggle=el.menuToggle;
@@ -3288,7 +3398,10 @@ function setHasData(has){
       try{ state.sql.db.close(); }catch(_){ }
     }
     state.sql={db:null, table:'', columns:[], columnMap:new Map(), rowCount:0};
-    state.lastTabIndex=TAB_ORDER.indexOf('overview');
+    const resetOrder=getActiveTabOrder();
+    let resetIndex=resetOrder.indexOf('overview');
+    if(resetIndex<0) resetIndex=0;
+    state.lastTabIndex=resetIndex;
     resetKpis();
     hideCustomRangePanel();
     syncCustomRangeInputs();
