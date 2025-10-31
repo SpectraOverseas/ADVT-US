@@ -112,6 +112,13 @@ body.light .dataset-modal{background:rgba(15,23,42,.32)}
 .dataset-modal[data-loading="true"] .dataset-modal__spinner{display:inline-flex}
 .dataset-modal__error{display:none;color:var(--danger);font-weight:600}
 .dataset-modal__error.show{display:block}
+.dataset-warning{display:flex;align-items:center;gap:12px;margin:12px clamp(14px,3vw,28px);padding:12px 16px;border-radius:14px;background:color-mix(in srgb,var(--danger) 12%, var(--panel));color:var(--danger);font-weight:600;box-shadow:var(--shadow);border:1px solid color-mix(in srgb,var(--danger) 45%, var(--border))}
+.dataset-warning[hidden]{display:none}
+.dataset-warning__text{flex:1;min-width:0}
+.dataset-warning__retry{background:color-mix(in srgb,var(--panel) 92%, var(--bg));color:inherit;border:1px solid currentColor;padding:8px 14px;border-radius:999px;font-weight:700;cursor:pointer}
+.dataset-warning__retry:disabled{opacity:.6;cursor:not-allowed}
+.dataset-warning__retry:hover:not(:disabled){background:color-mix(in srgb,var(--panel) 80%, var(--bg))}
+body.light .dataset-warning{background:color-mix(in srgb,var(--danger) 12%, var(--panel));color:color-mix(in srgb,var(--danger) 65%, #000);border-color:color-mix(in srgb,var(--danger) 45%, var(--border))}
 .dataset-modal__actions{display:flex;gap:12px;justify-content:flex-end}
 .dataset-modal__actions button{min-width:96px}
 .menuix-modal{padding:clamp(18px,4vw,64px);background:color-mix(in srgb,var(--bg) 55%, rgba(15,18,22,.65));backdrop-filter:blur(14px);}
@@ -295,6 +302,7 @@ body.has-data #tipPill{display:none !important}
 .advertised-table tbody td{padding:9px 10px;border-bottom:1px solid var(--border);color:var(--text);font-weight:600;vertical-align:top}
 .advertised-table tbody tr:hover{background:color-mix(in srgb,var(--chip) 85%, transparent)}
 .advertised-table tbody tr:last-child td{border-bottom:0}
+.advertised-table tbody tr.advertised-empty-row td{color:var(--muted);font-weight:600}
 .advertised-table.is-loading tbody td{color:var(--muted);font-style:italic}
 .advertised-empty{padding:10px 12px;color:var(--muted);font-weight:600}
 .advertised-placeholder{color:var(--muted);font-weight:500}
@@ -512,6 +520,11 @@ body.has-data #tipPill{display:none !important}
         </div>
       </div>
     </div>
+  </div>
+
+  <div class="dataset-warning" id="datasetWarning" role="status" hidden>
+    <span class="dataset-warning__text" id="datasetWarningText"></span>
+    <button type="button" class="dataset-warning__retry" id="datasetRetryBtn">Retry</button>
   </div>
 
   <section class="status" id="statusArea" aria-live="polite">
@@ -2232,6 +2245,11 @@ const el={
     spinner:document.getElementById('datasetLoading'),
     error:document.getElementById('datasetError')
   },
+  datasetWarning:{
+    root:document.getElementById('datasetWarning'),
+    text:document.getElementById('datasetWarningText'),
+    retry:document.getElementById('datasetRetryBtn')
+  },
   toast:document.getElementById('appToast'),
   pickLocalBtn:document.getElementById('pickLocalBtn'),
   fileInput:document.getElementById('fileInput'),
@@ -2290,7 +2308,7 @@ const state={
   asinSkuMap:new Map(),
   asinSkuLoaded:false,
   asinValueMap:new Map(),
-  advertisedProducts:{rows:[],loaded:false,renderToken:0,lastSlot:null},
+  advertisedProducts:{rows:[],loaded:false,renderToken:0,lastSlot:null,placeholder:false,placeholderMessage:'',loadError:false},
   conversionPage:{st:0,asin:0},
   lastTabIndex:0,
   pivotFilters:{},
@@ -2300,7 +2318,10 @@ const state={
   sql:{db:null, table:'', columns:[], columnMap:new Map(), rowCount:0},
   activeWorkbookOption:'search',
   customWorkbookLabel:'',
-  currentDataset:'search'
+  currentDataset:'search',
+  datasetWarnings:{advertised:null},
+  datasetLoadingId:null,
+  datasetRetrying:false
 };
 const PIVOT_SORT_KEYS=new Set(['label','sku','spend','sales','acos']);
 
@@ -2511,7 +2532,8 @@ const WORKBOOK_OPTIONS=[
     id:'advertised',
     label:'Products Advertised Product',
     description:'Advertised product performance',
-    file:'Products Advertised Product.xlsx'
+    file:'Products%20Advertised%20Product.xlsx',
+    aliases:['Products Advertised Product.xlsx']
   }
 ];
 const WORKBOOK_OPTION_MAP=new Map(WORKBOOK_OPTIONS.map(opt=>[opt.id,opt]));
@@ -2522,7 +2544,9 @@ const DEFAULT_WORKBOOKS=[
   ...new Set(WORKBOOK_OPTIONS.flatMap(opt=>[opt.file,...(opt.aliases||[])]))
 ];
 const ASIN_SKU_WORKBOOK='ASINwise SKU.xlsx';
-const ADVERTISED_PRODUCTS_WORKBOOK='Products Advertised Product.xlsx';
+const ADVERTISED_PRODUCTS_WORKBOOK='Products%20Advertised%20Product.xlsx';
+const ADVERTISED_FALLBACK_MESSAGE='Failed to load workbook. Showing placeholders.';
+const ADVERTISED_FALLBACK_HEADERS=['Date','Store','LO','Impressions','Clicks','Sales','Spend','Category','Targeting Type','Targeting Sub Type','Portfolio Name','Campaign Name','Ad Group Name','Advertised ASIN','Advertised SKU'];
 let asinSkuPromise=null;
 let advertisedProductsPromise=null;
 let defaultWorkbookPromise=null;
@@ -2585,6 +2609,54 @@ function updateDatasetDisplay(){
   }
   syncDatasetFormSelection();
   updateTabsUI();
+  refreshDatasetWarning();
+}
+
+function setDatasetWarning(key, message){
+  if(!state.datasetWarnings) state.datasetWarnings={};
+  const normalizedKey=key||'';
+  const nextValue=message?String(message):null;
+  if(state.datasetWarnings[normalizedKey]===nextValue) return;
+  state.datasetWarnings[normalizedKey]=nextValue;
+  refreshDatasetWarning();
+  updateDatasetModalNotice();
+}
+
+function refreshDatasetWarning(){
+  const wrap=el.datasetWarning?.root;
+  if(!wrap) return;
+  const activeKey=getActiveDatasetKey();
+  const message=state.datasetWarnings?.[activeKey]||null;
+  const retryBtn=el.datasetWarning?.retry||null;
+  const textNode=el.datasetWarning?.text||null;
+  const isLoading=state.datasetLoadingId && state.datasetLoadingId===activeKey;
+  if(message){
+    wrap.hidden=false;
+    if(textNode) textNode.textContent=message;
+    if(retryBtn){
+      const showRetry=activeKey==='advertised';
+      retryBtn.hidden=!showRetry;
+      retryBtn.disabled=!!isLoading || !!state.datasetRetrying;
+    }
+  }else{
+    wrap.hidden=true;
+    if(textNode) textNode.textContent='';
+    if(retryBtn){
+      retryBtn.hidden=true;
+      retryBtn.disabled=false;
+    }
+  }
+}
+
+function updateDatasetModalNotice(){
+  if(!isDatasetModalOpen()) return;
+  const activeKey=getActiveDatasetKey();
+  const message=state.datasetWarnings?.[activeKey]||null;
+  if(message){
+    showDatasetModalError(message);
+  }else{
+    clearDatasetModalError();
+  }
 }
 
 function setActiveWorkbookOption(id){
@@ -2702,6 +2774,7 @@ function openDatasetModal(){
   datasetModalReturnFocus=document.activeElement instanceof HTMLElement?document.activeElement:null;
   modal.classList.add('open');
   modal.removeAttribute('hidden');
+  updateDatasetModalNotice();
   if(el.menuToggle) el.menuToggle.setAttribute('aria-expanded','true');
   const focusable=getDatasetModalFocusables();
   const target=focusable.find(node=>node.tagName==='INPUT') || focusable[0];
@@ -2736,48 +2809,161 @@ function handleDatasetOptionChange(event){
   });
 }
 
+function createAdvertisedFallbackSheetData(){
+  const headers=ADVERTISED_FALLBACK_HEADERS.slice();
+  const emptyRow=new Array(headers.length).fill('');
+  return [[], headers, emptyRow];
+}
+
+async function applyAdvertisedDatasetFallback(){
+  try{
+    const sheetData=createAdvertisedFallbackSheetData();
+    await buildStateFromSheetData(sheetData,{
+      headerRowIndex:1,
+      columnMap:getDatasetColumnMap('advertised'),
+      datasetKey:'advertised'
+    });
+    setActiveWorkbookOption('advertised');
+    localStorage.setItem(DATASET_STORAGE_KEY,'advertised');
+    if(state.advertisedProducts){
+      state.advertisedProducts.renderToken=0;
+      state.advertisedProducts.placeholder=true;
+      state.advertisedProducts.placeholderMessage=ADVERTISED_FALLBACK_MESSAGE;
+      state.advertisedProducts.loaded=false;
+      state.advertisedProducts.rows=[];
+      state.advertisedProducts.loadError=true;
+    }
+    setHasData(true);
+    renderAll();
+    advertisedProductsPromise=null;
+    setDatasetWarning('advertised', ADVERTISED_FALLBACK_MESSAGE);
+    updateDataActionsAvailability();
+    return true;
+  }catch(err){
+    console.error('Failed to apply advertised dataset fallback:', err);
+    return false;
+  }
+}
+
+function clearAdvertisedFallbackState(){
+  if(state.advertisedProducts){
+    state.advertisedProducts.placeholder=false;
+    state.advertisedProducts.placeholderMessage='';
+    state.advertisedProducts.loadError=false;
+    state.advertisedProducts.loaded=false;
+    state.advertisedProducts.rows=[];
+    state.advertisedProducts.renderToken=0;
+  }
+  advertisedProductsPromise=null;
+  setDatasetWarning('advertised', null);
+}
+
+function retryAdvertisedDataset(){
+  if(state.datasetRetrying || state.datasetLoadingId==='advertised') return;
+  state.datasetRetrying=true;
+  refreshDatasetWarning();
+  if(state.advertisedProducts){
+    state.advertisedProducts.placeholder=false;
+    state.advertisedProducts.placeholderMessage='';
+    state.advertisedProducts.loaded=false;
+    state.advertisedProducts.rows=[];
+    state.advertisedProducts.loadError=false;
+  }
+  advertisedProductsPromise=null;
+  loadDatasetSelection('advertised').finally(()=>{
+    state.datasetRetrying=false;
+    refreshDatasetWarning();
+  });
+}
+
 async function loadDatasetSelection(datasetId){
   const option=getWorkbookOption(datasetId);
   if(!option){
     showDatasetModalError('Dataset is unavailable.');
     return;
   }
-  if(option.id===state.activeWorkbookOption && state.hasData){
+  const hasWarning=!!state.datasetWarnings?.[option.id];
+  if(option.id===state.activeWorkbookOption && state.hasData && !hasWarning){
     closeDatasetModal(true);
     showToast(`Loaded: ${option.label}`);
     return;
   }
   clearDatasetModalError();
   setDatasetModalLoading(true);
+  state.datasetLoadingId=option.id;
+  refreshDatasetWarning();
   const previousOption=state.activeWorkbookOption;
   const previousLabel=state.customWorkbookLabel;
   let requestToken=null;
+  let succeeded=false;
+  let fallbackApplied=false;
+  let aborted=false;
   try{
     setHasData(false);
     showLoading(true);
     const columnMap=getDatasetColumnMap(option.id);
     const result=await loadExcel(option.file, columnMap, option.id);
     requestToken=result?.token;
-    if(!result?.success){
-      return;
+    if(result?.success){
+      succeeded=true;
+    }else if(result && result.success===false && result.token!==datasetRequestToken){
+      aborted=true;
+    }else if(option.id==='advertised' && (!result || result.token===datasetRequestToken)){
+      fallbackApplied=await applyAdvertisedDatasetFallback();
+    }
+  }catch(err){
+    console.error('Failed to load workbook option:', err);
+    if(option.id==='advertised'){
+      fallbackApplied=await applyAdvertisedDatasetFallback();
+      if(!fallbackApplied){
+        showDatasetModalError('Failed to load workbook. Please try again.');
+        if(previousOption){
+          setActiveWorkbookOption(previousOption);
+        }else if(previousLabel){
+          setCustomWorkbookLabel(previousLabel);
+        }
+      }
+    }else{
+      showDatasetModalError('Failed to load workbook. Please try again.');
+      if(previousOption){
+        setActiveWorkbookOption(previousOption);
+      }else if(previousLabel){
+        setCustomWorkbookLabel(previousLabel);
+      }
+    }
+  }finally{
+    showLoading(false);
+    if(requestToken===null || requestToken===datasetRequestToken){
+      setDatasetModalLoading(false);
+    }
+    state.datasetLoadingId=null;
+    refreshDatasetWarning();
+  }
+  if(aborted){
+    return;
+  }
+  if(succeeded){
+    if(option.id==='advertised'){
+      clearAdvertisedFallbackState();
     }
     state.currentDataset=option.id;
     setActiveWorkbookOption(option.id);
     localStorage.setItem(DATASET_STORAGE_KEY, option.id);
     closeDatasetModal(true);
     showToast(`Loaded: ${option.label}`);
-  }catch(err){
-    console.error('Failed to load workbook option:', err);
+    return;
+  }
+  if(fallbackApplied){
+    closeDatasetModal(true);
+    showToast(ADVERTISED_FALLBACK_MESSAGE);
+    return;
+  }
+  if(option.id==='advertised' && !succeeded){
     showDatasetModalError('Failed to load workbook. Please try again.');
     if(previousOption){
       setActiveWorkbookOption(previousOption);
     }else if(previousLabel){
       setCustomWorkbookLabel(previousLabel);
-    }
-  }finally{
-    showLoading(false);
-    if(requestToken===null || requestToken===datasetRequestToken){
-      setDatasetModalLoading(false);
     }
   }
 }
@@ -3073,6 +3259,9 @@ function formatSkuEntries(entries){
 
 function ensureAdvertisedProductsData(){
   const entry=state.advertisedProducts;
+  if(entry?.placeholder){
+    return Promise.resolve([]);
+  }
   if(entry?.loaded){
     return Promise.resolve(Array.isArray(entry.rows)?entry.rows:[]);
   }
@@ -3083,6 +3272,9 @@ function ensureAdvertisedProductsData(){
     if(entry){
       entry.rows=Array.isArray(rows)?rows:[];
       entry.loaded=true;
+      entry.loadError=false;
+      entry.placeholder=false;
+      entry.placeholderMessage='';
     }
     return entry?.rows||[];
   }).catch(err=>{
@@ -3090,6 +3282,7 @@ function ensureAdvertisedProductsData(){
     if(entry){
       entry.rows=[];
       entry.loaded=false;
+      entry.loadError=true;
     }
     throw err;
   }).finally(()=>{
@@ -3245,6 +3438,9 @@ document.addEventListener('DOMContentLoaded', () => {
     state.currentDataset=savedDatasetKey;
   }
   updateDatasetDisplay();
+  if(el.datasetWarning?.retry){
+    el.datasetWarning.retry.addEventListener('click', retryAdvertisedDataset);
+  }
   el.themeBtn.addEventListener('click',()=>{
     document.body.classList.toggle('light');
     localStorage.setItem('theme', document.body.classList.contains('light')?'light':'dark');
@@ -3699,6 +3895,13 @@ function showLoading(on, options={}){
 
 function resetKpis(){ Object.values(el.kpi||{}).forEach(node=>{ if(node) node.textContent='—'; }); lastKpiSeries=null; updateKpiSparks(null); }
 
+function updateDataActionsAvailability(){
+  if(!el.dlCsv) return;
+  const count=Number.isFinite(state?.sql?.rowCount)?state.sql.rowCount:0;
+  const enabled=!!state.hasData && count>0;
+  el.dlCsv.disabled=!enabled;
+}
+
 function setHasData(has){
   state.hasData=!!has;
   if(has){
@@ -3710,7 +3913,6 @@ function setHasData(has){
     if(el.kpis) el.kpis.hidden=false;
     if(el.pivot?.section) el.pivot.section.hidden=false;
     if(el.openFiltersBtn) el.openFiltersBtn.style.display='inline-flex';
-    if(el.dlCsv) el.dlCsv.disabled=false;
     if(el.monthsWrap) el.monthsWrap.hidden = state.monthOptions.length===0;
     if(el.tabs?.bar) el.tabs.bar.hidden=false;
     if(el.tipPill) el.tipPill.hidden=true;
@@ -3725,7 +3927,6 @@ function setHasData(has){
     if(el.kpis) el.kpis.hidden=true;
     if(el.pivot?.section) el.pivot.section.hidden=true;
     if(el.openFiltersBtn) el.openFiltersBtn.style.display='none';
-    if(el.dlCsv) el.dlCsv.disabled=true;
     if(el.monthsWrap) el.monthsWrap.hidden=true;
     if(el.tabs?.bar) el.tabs.bar.hidden=true;
     if(el.tipPill) el.tipPill.hidden=false;
@@ -3735,6 +3936,9 @@ function setHasData(has){
       state.advertisedProducts.lastSlot=null;
       state.advertisedProducts.loaded=false;
       state.advertisedProducts.rows=[];
+      state.advertisedProducts.placeholder=false;
+      state.advertisedProducts.placeholderMessage='';
+      state.advertisedProducts.loadError=false;
     }
     closePivotFilterPopup(false);
     state.columns={};
@@ -3770,6 +3974,7 @@ function setHasData(has){
   updateMonthSummary();
   updateTabsUI();
   updateResetButtonVisibility();
+  updateDataActionsAvailability();
 }
 
 /* ===== Excel parsing (headers row 2, data from row 3) ===== */
@@ -5825,24 +6030,18 @@ function setAdvertisedProductsView(status, rows){
   if(table){
     table.classList.toggle('is-loading', status==='loading');
   }
+  const renderMessageRow=(message)=>{
+    const text=message||'No rows available.';
+    if(body){
+      body.innerHTML=`<tr class="advertised-empty-row"><td colspan="2">${escapeHtml(text)}</td></tr>`;
+    }
+    if(table) table.hidden=false;
+    if(empty) empty.hidden=true;
+  };
   if(status==='loading'){
     if(body) body.innerHTML='<tr class="advertised-loading"><td colspan="2">Loading…</td></tr>';
     if(table) table.hidden=false;
     if(empty) empty.hidden=true;
-  }else if(status==='error'){
-    if(body) body.innerHTML='';
-    if(table) table.hidden=true;
-    if(empty){
-      empty.textContent='Unable to load advertised products.';
-      empty.hidden=false;
-    }
-  }else if(status==='empty'){
-    if(body) body.innerHTML='';
-    if(table) table.hidden=true;
-    if(empty){
-      empty.textContent='No advertised products for the selected filters.';
-      empty.hidden=false;
-    }
   }else if(status==='rows'){
     if(body){
       const placeholder='<span class="advertised-placeholder">—</span>';
@@ -5854,6 +6053,13 @@ function setAdvertisedProductsView(status, rows){
     }
     if(table) table.hidden=false;
     if(empty) empty.hidden=true;
+  }else if(status==='placeholder'){
+    const message=typeof rows==='string' && rows?rows:ADVERTISED_FALLBACK_MESSAGE;
+    renderMessageRow(message);
+  }else if(status==='error'){
+    renderMessageRow('Unable to load advertised products.');
+  }else{
+    renderMessageRow('No rows available.');
   }
   if(typeof schedulePivotLayout==='function'){
     schedulePivotLayout();
@@ -5901,6 +6107,11 @@ function updateAdvertisedProductsDisplay(){
   }
   if(tracker) tracker.lastSlot=filterMode;
   view.card.hidden=false;
+  if(tracker?.placeholder){
+    const message=tracker.placeholderMessage || state.datasetWarnings?.advertised || ADVERTISED_FALLBACK_MESSAGE;
+    setAdvertisedProductsView('placeholder', message);
+    return;
+  }
   setAdvertisedProductsView('loading');
   ensureAdvertisedProductsData().then(rows=>{
     if(state.advertisedProducts?.renderToken!==token) return;
