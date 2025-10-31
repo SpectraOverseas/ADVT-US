@@ -40,8 +40,8 @@ h1{margin:0;font-weight:800;letter-spacing:.2px}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 
 /* Buttons */
-button:not(.menu-icon){border:1px solid var(--border);background:var(--panel);color:var(--text);padding:10px 12px;border-radius:12px;cursor:pointer;transition:transform .12s, box-shadow .25s, background .2s, border-color .2s}
-button:not(.menu-icon):hover{transform:translateY(-1px)}
+button{border:1px solid var(--border);background:var(--panel);color:var(--text);padding:10px 12px;border-radius:12px;cursor:pointer;transition:transform .12s, box-shadow .25s, background .2s, border-color .2s}
+button:hover{transform:translateY(-1px)}
 button:disabled{opacity:.5;cursor:not-allowed}
 #resetFilters{display:none}
 .btn-filters,.btn-reset{display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:999px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--chip) 70%, var(--panel));color:var(--text);font-weight:700;box-shadow:var(--shadow);transition:transform .15s ease, box-shadow .25s ease, background .2s ease}
@@ -57,21 +57,15 @@ button:disabled{opacity:.5;cursor:not-allowed}
 /* Header */
 .app-header{display:grid;grid-template-columns:auto minmax(260px,1fr) auto;align-items:center;gap:clamp(12px,2vw,24px);padding:12px clamp(14px,3vw,28px);border-bottom:1px solid var(--border);background:var(--header-grad);position:sticky;top:0;backdrop-filter:blur(6px);z-index:20}
 .header-title{display:flex;align-items:center;gap:10px;min-width:0}
-.menu-icon{position:relative;display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;min-width:44px;padding:0;border:0;background:transparent;color:var(--text);cursor:pointer;border-radius:999px;line-height:1;-webkit-tap-highlight-color:transparent;transition:color .22s ease}
-.menu-icon::after{content:"";position:absolute;inset:6px;border-radius:inherit;background:color-mix(in srgb,var(--text) 14%, transparent);opacity:0;transform:scale(.94);transition:opacity .22s ease, transform .24s ease}
-.menu-icon:hover::after{opacity:.18;transform:scale(1)}
-.menu-icon:active::after{opacity:.24;transform:scale(.96)}
-.menu-icon:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
-.menu-icon.is-active::after{opacity:.22}
-.menu-icon__bars{width:22px;height:18px;display:flex;flex-direction:column;justify-content:space-between}
-.menu-icon__bar{display:block;height:2px;background:currentColor;border-radius:1px;transition:transform .26s cubic-bezier(.4,0,.2,1),opacity .26s cubic-bezier(.4,0,.2,1)}
-.menu-icon.is-active .menu-icon__bar:nth-child(1){transform:translateY(8px) rotate(45deg)}
-.menu-icon.is-active .menu-icon__bar:nth-child(2){opacity:0}
-.menu-icon.is-active .menu-icon__bar:nth-child(3){transform:translateY(-8px) rotate(-45deg)}
-@media (prefers-reduced-motion: reduce){
-  .menu-icon::after{transition:none}
-  .menu-icon__bar{transition:none}
-}
+.menu-toggle{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--panel) 85%, var(--chip));box-shadow:var(--shadow);color:var(--text);transition:transform .2s ease, box-shadow .25s ease, background .2s ease;cursor:pointer}
+.menu-toggle:hover{transform:translateY(-1px);box-shadow:0 12px 28px rgba(0,0,0,.28);background:color-mix(in srgb,var(--chip) 90%, var(--panel))}
+.menu-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.menu-toggle.is-active{background:color-mix(in srgb,var(--accent) 16%, var(--panel));color:var(--accent);box-shadow:0 14px 28px rgba(37,99,235,.24)}
+.menu-icon{width:22px;height:18px;display:flex;flex-direction:column;justify-content:space-between;position:relative}
+.menu-icon span{display:block;height:2px;background:currentColor;border-radius:1px;transition:transform .3s cubic-bezier(.4,0,.2,1),opacity .3s cubic-bezier(.4,0,.2,1)}
+.menu-toggle.is-active .menu-icon span:nth-child(1){transform:translateY(8px) rotate(45deg)}
+.menu-toggle.is-active .menu-icon span:nth-child(2){opacity:0}
+.menu-toggle.is-active .menu-icon span:nth-child(3){transform:translateY(-8px) rotate(-45deg)}
 .menu-control{display:inline-flex;align-items:center;gap:10px;position:relative}
 .header-title-icon{font-size:1.4em;line-height:1}
 #headerTitle{display:flex;align-items:center;gap:8px;min-width:0}
@@ -422,14 +416,14 @@ body.has-data #tipPill{display:none !important}
 <header id="appHeader" class="app-header">
   <div class="header-title">
     <div class="menu-control">
-      <button type="button" class="menu-icon" id="menuToggle" aria-label="Open menu" aria-haspopup="dialog" aria-controls="datasetModal" aria-expanded="false" aria-describedby="menuDatasetStatus">
-        <span class="menu-icon__bars" aria-hidden="true">
-          <span class="menu-icon__bar"></span>
-          <span class="menu-icon__bar"></span>
-          <span class="menu-icon__bar"></span>
+      <div class="menu-toggle" id="menuToggle" role="button" tabindex="0" aria-label="Choose report data" aria-haspopup="dialog" aria-controls="datasetModal" aria-expanded="false">
+        <span class="menu-icon" aria-hidden="true">
+          <span></span>
+          <span></span>
+          <span></span>
         </span>
-      </button>
-      <span id="menuDatasetStatus" class="sr-only" role="status" aria-live="polite">No dataset selected.</span>
+        <span class="sr-only">Toggle data menu</span>
+      </div>
     </div>
     <h1 id="headerTitle">
       <span id="headerTitleIcon" class="header-title-icon" aria-hidden="true">🔎</span>
@@ -2209,7 +2203,6 @@ const el={
     clear:document.getElementById('pivotFilterPopupClear')
   },
   menuToggle:document.getElementById('menuToggle'),
-  menuStatus:document.getElementById('menuDatasetStatus'),
   datasetModal:{
     root:document.getElementById('datasetModal'),
     form:document.getElementById('datasetForm'),
@@ -2470,13 +2463,6 @@ function getDatasetColumnMap(id){
   return map||null;
 }
 
-function setMenuToggleExpanded(isOpen){
-  if(!el.menuToggle) return;
-  el.menuToggle.setAttribute('aria-expanded', isOpen?'true':'false');
-  el.menuToggle.setAttribute('aria-label', isOpen?'Close menu':'Open menu');
-  el.menuToggle.classList.toggle('is-active', !!isOpen);
-}
-
 function updateDatasetDisplay(){
   const toggle=el.menuToggle;
   const option=state.activeWorkbookOption?getWorkbookOption(state.activeWorkbookOption):null;
@@ -2489,16 +2475,12 @@ function updateDatasetDisplay(){
   const datasetConfig=getActiveDatasetConfig();
   const headerTitle=datasetConfig?.title || label;
   if(toggle){
-    setMenuToggleExpanded(isDatasetModalOpen());
-  }
-  if(el.menuStatus){
-    let statusText='No dataset selected.';
-    if(state.customWorkbookLabel){
-      statusText=`Current dataset: ${state.customWorkbookLabel}.`;
-    }else if(option){
-      statusText=`Current dataset: ${option.label}.`;
+    let aria='Choose report data';
+    if(label){
+      aria+=`. Current selection: ${label}`;
     }
-    el.menuStatus.textContent=statusText;
+    toggle.setAttribute('aria-label', aria);
+    toggle.setAttribute('aria-expanded', isDatasetModalOpen()?'true':'false');
   }
   if(el.headerTitleText){
     el.headerTitleText.textContent=headerTitle || '';
@@ -2631,7 +2613,7 @@ function openDatasetModal(){
   datasetModalReturnFocus=document.activeElement instanceof HTMLElement?document.activeElement:null;
   modal.classList.add('open');
   modal.removeAttribute('hidden');
-  setMenuToggleExpanded(true);
+  if(el.menuToggle) el.menuToggle.setAttribute('aria-expanded','true');
   const focusable=getDatasetModalFocusables();
   const target=focusable.find(node=>node.tagName==='INPUT') || focusable[0];
   if(target){
@@ -2647,7 +2629,7 @@ function closeDatasetModal(focusReturn=false){
   modal.classList.remove('open');
   modal.setAttribute('hidden','');
   modal.removeEventListener('keydown', handleDatasetModalKeydown);
-  setMenuToggleExpanded(false);
+  if(el.menuToggle) el.menuToggle.setAttribute('aria-expanded','false');
   if(focusReturn && datasetModalReturnFocus){
     try{ datasetModalReturnFocus.focus({preventScroll:true}); }
     catch(_){ datasetModalReturnFocus.focus(); }
@@ -3549,7 +3531,7 @@ function boot(){
       else openDatasetModal();
     });
     el.menuToggle.addEventListener('keydown', (event)=>{
-      if(event.key==='ArrowDown'){
+      if(event.key==='Enter' || event.key===' ' || event.key==='Spacebar' || event.key==='ArrowDown'){
         event.preventDefault();
         if(!isDatasetModalOpen()) openDatasetModal();
       }
