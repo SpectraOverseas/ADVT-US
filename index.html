@@ -306,6 +306,9 @@ body.has-data #tipPill{display:none !important}
 .advertised-table.is-loading tbody td{color:var(--muted);font-style:italic}
 .advertised-empty{padding:10px 12px;color:var(--muted);font-weight:600}
 .advertised-placeholder{color:var(--muted);font-weight:500}
+.advertised-summary{display:flex;align-items:center;gap:8px;margin:0 0 10px;color:var(--text);font-weight:700}
+.advertised-summary-label{font-size:12px;text-transform:uppercase;color:var(--muted);letter-spacing:.6px}
+.advertised-summary-value{font-size:16px}
 .pivot-date-tabs{display:flex;align-items:center;gap:6px;padding:4px;border-radius:10px;border:1px solid var(--border);background:color-mix(in srgb,var(--panel) 80%, var(--chip));box-shadow:inset 0 1px 0 color-mix(in srgb,var(--text) 4%, transparent)}
 .pivot-date-tab{flex:1 1 0;border:0;background:transparent;color:var(--muted);font-weight:700;padding:8px 12px;border-radius:8px;cursor:pointer;transition:color .2s ease, background .2s ease, transform .12s ease}
 .pivot-date-tab:hover{color:var(--text);background:color-mix(in srgb,var(--chip) 85%, transparent);transform:translateY(-1px)}
@@ -721,6 +724,10 @@ body.has-data #tipPill{display:none !important}
       <span class="chart-title-text">Advertised Products</span>
     </div>
     <div class="pivot-body">
+      <div class="advertised-summary" id="advertisedProductsSummary" hidden>
+        <span class="advertised-summary-label">Spend</span>
+        <span class="advertised-summary-value" id="advertisedProductsSpend">—</span>
+      </div>
       <div id="advertisedProductsEmpty" class="advertised-empty" hidden>No advertised products for the selected filters.</div>
       <table id="advertisedProductsTable" class="advertised-table" hidden>
         <thead>
@@ -2224,7 +2231,9 @@ const el={
     card:document.getElementById('advertisedProductsCard'),
     table:document.getElementById('advertisedProductsTable'),
     body:document.querySelector('#advertisedProductsTable tbody'),
-    empty:document.getElementById('advertisedProductsEmpty')
+    empty:document.getElementById('advertisedProductsEmpty'),
+    summary:document.getElementById('advertisedProductsSummary'),
+    spend:document.getElementById('advertisedProductsSpend')
   },
   pivotPopup:{
     root:document.getElementById('pivotFilterPopup'),
@@ -2532,8 +2541,8 @@ const WORKBOOK_OPTIONS=[
     id:'advertised',
     label:'Products Advertised Product',
     description:'Advertised product performance',
-    file:'Products%20Advertised%20Product.xlsx',
-    aliases:['Products Advertised Product.xlsx']
+    file:'Products Advertised Product.xlsx',
+    aliases:['Products Advertised Product.xlsx','Products%20Advertised%20Product.xlsx']
   }
 ];
 const WORKBOOK_OPTION_MAP=new Map(WORKBOOK_OPTIONS.map(opt=>[opt.id,opt]));
@@ -2548,7 +2557,7 @@ const DEFAULT_WORKBOOKS=[
   ...new Set(WORKBOOK_OPTIONS.flatMap(opt=>[opt.file,...(opt.aliases||[])]))
 ];
 const ASIN_SKU_WORKBOOK='ASINwise SKU.xlsx';
-const ADVERTISED_PRODUCTS_WORKBOOK='Products%20Advertised%20Product.xlsx';
+const ADVERTISED_PRODUCTS_WORKBOOK='Products Advertised Product.xlsx';
 const ADVERTISED_FALLBACK_MESSAGE='Failed to load workbook. Showing placeholders.';
 const ADVERTISED_FALLBACK_HEADERS=['Date','Store','LO','Impressions','Clicks','Sales','Spend','Category','Targeting Type','Targeting Sub Type','Portfolio Name','Campaign Name','Ad Group Name','Advertised ASIN','Advertised SKU'];
 let asinSkuPromise=null;
@@ -2556,6 +2565,7 @@ let advertisedProductsPromise=null;
 let defaultWorkbookPromise=null;
 let defaultWorkbookTimer=null;
 let loadingDepth=0;
+let allowLoadingIndicator=true;
 let datasetRequestToken=0;
 let datasetModalReturnFocus=null;
 let toastTimer=null;
@@ -2708,6 +2718,7 @@ function clearDatasetCache(datasetKey){
 function clearWorkbookBufferCacheEntry(file){
   const key=getWorkbookCacheKey(file);
   if(key) workbookBufferCache.delete(key);
+  if(file) workbookDataStore.removeByFile(file);
 }
 
 function clearWorkbookCacheForOption(option){
@@ -3047,20 +3058,36 @@ function retryAdvertisedDataset(){
   if(state.datasetRetrying || state.datasetLoadingId==='advertised') return;
   state.datasetRetrying=true;
   refreshDatasetWarning();
-  if(state.advertisedProducts){
-    state.advertisedProducts.placeholder=false;
-    state.advertisedProducts.placeholderMessage='';
-    state.advertisedProducts.loaded=false;
-    state.advertisedProducts.rows=[];
-    state.advertisedProducts.loadError=false;
+  const finish=()=>{
+    state.datasetRetrying=false;
+    refreshDatasetWarning();
+    updateAdvertisedSpendSummary();
+  };
+  const resetTracker=()=>{
+    if(state.advertisedProducts){
+      state.advertisedProducts.placeholder=false;
+      state.advertisedProducts.placeholderMessage='';
+      state.advertisedProducts.loaded=false;
+      state.advertisedProducts.rows=[];
+      state.advertisedProducts.loadError=false;
+    }
+  };
+  if(workbookDataStore.hasData('advertised')){
+    resetTracker();
+    advertisedProductsPromise=null;
+    ensureAdvertisedProductsData().then(()=>{
+      renderAll();
+      updateAdvertisedProductsDisplay();
+    }).finally(finish);
+    return;
   }
+  resetTracker();
   clearDatasetCache('advertised');
   clearWorkbookCacheForOption(getWorkbookOption('advertised'));
   advertisedProductsPromise=null;
-  loadDatasetSelection('advertised').finally(()=>{
-    state.datasetRetrying=false;
-    refreshDatasetWarning();
-  });
+  workbookDataStore.retryInitialLoad().then(()=>loadDatasetSelection('advertised')).catch(err=>{
+    console.warn('Advertised dataset retry failed:', err);
+  }).finally(finish);
 }
 
 async function loadDatasetSelection(datasetId){
@@ -3331,7 +3358,7 @@ function getWorkbookCandidateUrls(file){
   return Array.from(urls);
 }
 
-async function fetchWorkbookBuffer(file){
+async function fetchWorkbookBufferInternal(file){
   const candidates=getWorkbookCandidateUrls(file);
   if(!candidates.length) throw new Error('Workbook path missing');
   const cacheKey=getWorkbookCacheKey(file);
@@ -3365,11 +3392,202 @@ async function fetchWorkbookBuffer(file){
   throw new Error(`Workbook not available: ${file}`);
 }
 
+const TRACKED_WORKBOOK_FILES={
+  search:'Products Search Term.xlsx',
+  advertised:ADVERTISED_PRODUCTS_WORKBOOK
+};
+const EXPECTED_WORKBOOK_KEYS=Object.keys(TRACKED_WORKBOOK_FILES);
+const TRACKED_WORKBOOK_PATHS=new Map();
+WORKBOOK_OPTIONS.forEach(option=>{
+  if(!option?.id) return;
+  const fileList=[option.file, ...(option.aliases||[])];
+  fileList.forEach(path=>{
+    const key=getWorkbookCacheKey(path);
+    if(key) TRACKED_WORKBOOK_PATHS.set(key, option.id);
+  });
+});
+const WORKBOOK_SPEND_HEADERS=new Set(['SPEND','COST','AD SPEND']);
+
+function createWorkbookDataStore(){
+  const entries=new Map();
+  let initialLoadPromise=null;
+  let initialLoadResolved=false;
+  let initialLoadError=null;
+
+  const getKeyForFile=file=>{
+    if(!file) return null;
+    const normalized=getWorkbookCacheKey(file);
+    return normalized?TRACKED_WORKBOOK_PATHS.get(normalized)||null:null;
+  };
+
+  const hasAllEntries=()=>EXPECTED_WORKBOOK_KEYS.every(key=>entries.has(key));
+
+  const findSpendColumnIndex=headers=>{
+    if(!Array.isArray(headers)) return -1;
+    for(let i=0;i<headers.length;i++){
+      const normalized=String(headers[i]??'').trim().replace(/\s+/g,' ').toUpperCase();
+      if(WORKBOOK_SPEND_HEADERS.has(normalized)) return i;
+    }
+    return -1;
+  };
+
+  const parseForStore=(buffer,file)=>{
+    try{
+      const wb=XLSX.read(buffer,{type:'array',cellDates:false,cellNF:false,cellText:false});
+      if(!wb.SheetNames || !wb.SheetNames.length) return {matrix:[],headerRowIndex:1,headers:[],spendTotal:NaN};
+      const sheetName=wb.SheetNames[0];
+      const ws=wb.Sheets[sheetName];
+      if(!ws) return {matrix:[],headerRowIndex:1,headers:[],spendTotal:NaN};
+      const matrix=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+      if(!Array.isArray(matrix) || !matrix.length) return {matrix:[],headerRowIndex:1,headers:[],spendTotal:NaN};
+      let headerRowIndex=1;
+      for(let i=0;i<Math.min(matrix.length,6);i++){
+        const candidate=(matrix[i]||[]).map(value=>String(value??'').trim());
+        if(candidate.some(Boolean)){
+          headerRowIndex=i;
+          break;
+        }
+      }
+      const headers=(matrix[headerRowIndex]||[]).map(value=>String(value??'').trim());
+      const spendIdx=findSpendColumnIndex(headers);
+      let spendTotal=0;
+      const rowObjects=[];
+      const keys=headers.map((header,idx)=>header||`Column ${idx+1}`);
+      for(let i=headerRowIndex+1;i<matrix.length;i++){
+        const row=Array.isArray(matrix[i])?matrix[i]:[];
+        if(spendIdx>-1){
+          spendTotal+=parseNumber(row[spendIdx]);
+        }
+        const obj={};
+        let hasValue=false;
+        for(let c=0;c<keys.length;c++){
+          const value=row[c];
+          if(value!=null && String(value).trim()!=='') hasValue=true;
+          obj[keys[c]]=value;
+        }
+        if(hasValue) rowObjects.push(obj);
+      }
+      if(spendIdx<0) spendTotal=NaN;
+      return {matrix,headerRowIndex,headers,rows:rowObjects,spendTotal};
+    }catch(err){
+      console.warn('Workbook cache parse failed for', file, err);
+      return {matrix:[],headerRowIndex:1,headers:[],spendTotal:NaN};
+    }
+  };
+
+  const loadAll=async()=>{
+    const pairs=Object.entries(TRACKED_WORKBOOK_FILES);
+    const nextEntries=new Map();
+    for(const [key,file] of pairs){
+      try{
+        const buffer=await fetchWorkbookBufferInternal(file);
+        const parsed=parseForStore(buffer,file);
+        nextEntries.set(key,{
+          key,
+          file,
+          buffer:buffer.slice(0),
+          ...parsed
+        });
+      }catch(err){
+        initialLoadError=err;
+        throw err;
+      }
+    }
+    entries.clear();
+    nextEntries.forEach((value,key)=>entries.set(key,value));
+    initialLoadResolved=true;
+    initialLoadError=null;
+    return entries;
+  };
+
+  initialLoadPromise=loadAll();
+
+  return {
+    ready:()=>initialLoadPromise,
+    isTrackedFile:file=>!!getKeyForFile(file),
+    getEntry:key=>entries.get(key)||null,
+    getBufferForFile(file){
+      const key=getKeyForFile(file);
+      if(!key) return null;
+      const entry=entries.get(key);
+      return entry?.buffer ? entry.buffer.slice(0) : null;
+    },
+    storeBufferForFile(file, buffer){
+      const key=getKeyForFile(file);
+      if(!key) return;
+      const parsed=parseForStore(buffer,file);
+      entries.set(key,{
+        key,
+        file,
+        buffer:buffer.slice(0),
+        ...parsed
+      });
+    },
+    removeByFile(file){
+      const key=getKeyForFile(file);
+      if(key) entries.delete(key);
+    },
+    hasData:key=>entries.has(key),
+    getSpend:key=>{
+      const entry=entries.get(key);
+      return Number.isFinite(entry?.spendTotal)?entry.spendTotal:NaN;
+    },
+    getRowsForKey(key){
+      const entry=entries.get(key);
+      if(!entry || !Array.isArray(entry.rows)) return null;
+      return entry.rows.map(row=>({...(row||{})}));
+    },
+    getMatrixForKey:key=>entries.get(key)?.matrix||null,
+    getHeaderRowIndex:key=>entries.get(key)?.headerRowIndex,
+    getAdvertisedRows(){
+      return entries.get('advertised')?.advertisedRows||null;
+    },
+    setAdvertisedRows(rows){
+      const entry=entries.get('advertised');
+      if(entry) entry.advertisedRows=Array.isArray(rows)?rows.slice(0):[];
+    },
+    wasInitialLoadSuccessful:()=>initialLoadResolved,
+    getInitialError:()=>initialLoadError,
+    async retryInitialLoad(){
+      if(initialLoadResolved && hasAllEntries()) return entries;
+      initialLoadResolved=false;
+      initialLoadPromise=loadAll();
+      return initialLoadPromise;
+    }
+  };
+}
+
+const workbookDataStore=createWorkbookDataStore();
+const workbookDataReady=workbookDataStore.ready().catch(err=>{
+  console.warn('Initial workbook preload failed:', err);
+  throw err;
+});
+if(typeof window!=='undefined'){ window.workbookDataReady=workbookDataReady; }
+workbookDataReady.finally(()=>{
+  allowLoadingIndicator=false;
+  loadingDepth=0;
+  showLoading(false,{force:true});
+  updateAdvertisedSpendSummary();
+});
+
+async function fetchWorkbookBuffer(file){
+  if(workbookDataStore.isTrackedFile(file)){
+    try{ await workbookDataReady; }
+    catch(_err){/* proceed to fetch directly if preload failed */}
+    const cached=workbookDataStore.getBufferForFile(file);
+    if(cached) return cached;
+  }
+  const buffer=await fetchWorkbookBufferInternal(file);
+  if(workbookDataStore.isTrackedFile(file)){
+    workbookDataStore.storeBufferForFile(file, buffer);
+  }
+  return buffer.slice(0);
+}
+
 async function loadExcel(url, columnMap, datasetKey){
   if(!url) throw new Error('Workbook path missing');
-  const target=encodeURI(url);
   const requestId=++datasetRequestToken;
-  const buffer=await fetchWorkbookBuffer(target);
+  const buffer=await fetchWorkbookBuffer(url);
   if(datasetRequestToken!==requestId) return {success:false, token:requestId};
   const parseOptions={...getDatasetParseOptions(datasetKey), columnMap, datasetKey};
   await loadWorkbookBuffer(buffer,parseOptions);
@@ -3538,6 +3756,17 @@ function ensureAdvertisedProductsData(){
   if(entry?.loaded){
     return Promise.resolve(Array.isArray(entry.rows)?entry.rows:[]);
   }
+  const cachedRows=workbookDataStore.getAdvertisedRows();
+  if(Array.isArray(cachedRows)){
+    if(entry){
+      entry.rows=cachedRows.slice(0);
+      entry.loaded=true;
+      entry.loadError=false;
+      entry.placeholder=false;
+      entry.placeholderMessage='';
+    }
+    return Promise.resolve(entry?.rows||cachedRows);
+  }
   if(advertisedProductsPromise){
     return advertisedProductsPromise;
   }
@@ -3567,36 +3796,69 @@ function ensureAdvertisedProductsData(){
 async function loadAdvertisedProductsWorkbook(){
   const file=ADVERTISED_PRODUCTS_WORKBOOK && ADVERTISED_PRODUCTS_WORKBOOK.trim();
   if(!file) return [];
-  let buf;
-  try{
-    buf=await fetchWorkbookBuffer(file);
-  }catch(err){
-    throw new Error('Advertised product workbook not found');
+  let entry=workbookDataStore.getEntry('advertised');
+  if(entry?.advertisedRows){
+    return entry.advertisedRows;
   }
-  const wb=XLSX.read(buf,{type:'array',cellDates:false,cellNF:false,cellText:false});
-  if(!wb.SheetNames || !wb.SheetNames.length) return [];
-  const sheetName=wb.SheetNames[0];
-  const ws=wb.Sheets[sheetName];
-  if(!ws) return [];
-  const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
-  if(!Array.isArray(rows) || rows.length<=2) return [];
+  if(!entry){
+    try{
+      await fetchWorkbookBuffer(file);
+      entry=workbookDataStore.getEntry('advertised');
+    }catch(err){
+      throw new Error('Advertised product workbook not found');
+    }
+  }
+  if(!entry) return [];
+  const matrix=workbookDataStore.getMatrixForKey('advertised');
+  const headerRowIndex=workbookDataStore.getHeaderRowIndex('advertised');
+  const rows=parseAdvertisedProductsFromMatrix(matrix, headerRowIndex);
+  workbookDataStore.setAdvertisedRows(rows);
+  return rows;
+}
+
+function parseAdvertisedProductsFromMatrix(matrix, headerRowIndex){
+  if(!Array.isArray(matrix) || matrix.length===0) return [];
+  let headerIndex=Number.isInteger(headerRowIndex)?headerRowIndex:1;
+  if(headerIndex<0) headerIndex=0;
   const sanitizeRow=row=>(row||[]).map(v=>String(v??'').trim());
-  const headers=sanitizeRow(rows[1]);
-  const idxCampaign=findIndexByTokens(headers,['campaignname']);
-  const idxAdGroup=findIndexByTokens(headers,['adgroupname']);
-  const idxSku=findIndexByTokens(headers,['advertisedsku']);
-  const idxAsin=findIndexByTokens(headers,['advertisedasin']);
+  if(headerIndex>=matrix.length){
+    headerIndex=Math.min(matrix.length-1,1);
+  }
+  let headers=sanitizeRow(matrix[headerIndex]||[]);
+  let idxCampaign=findIndexByTokens(headers,['campaignname']);
+  let idxAdGroup=findIndexByTokens(headers,['adgroupname']);
+  let idxSku=findIndexByTokens(headers,['advertisedsku']);
+  let idxAsin=findIndexByTokens(headers,['advertisedasin']);
+  if((idxCampaign<0 && idxAdGroup<0) || (idxSku<0 && idxAsin<0)){
+    const limit=Math.min(matrix.length,6);
+    for(let i=0;i<limit;i++){
+      const candidate=sanitizeRow(matrix[i]);
+      const campaignCandidate=findIndexByTokens(candidate,['campaignname']);
+      const adGroupCandidate=findIndexByTokens(candidate,['adgroupname']);
+      const skuCandidate=findIndexByTokens(candidate,['advertisedsku','sku']);
+      const asinCandidate=findIndexByTokens(candidate,['advertisedasin','asin']);
+      if((campaignCandidate>-1 || adGroupCandidate>-1) && (skuCandidate>-1 || asinCandidate>-1)){
+        headerIndex=i;
+        headers=candidate;
+        idxCampaign=campaignCandidate;
+        idxAdGroup=adGroupCandidate;
+        idxSku=skuCandidate;
+        idxAsin=asinCandidate;
+        break;
+      }
+    }
+  }
   if((idxCampaign<0 && idxAdGroup<0) || (idxSku<0 && idxAsin<0)) return [];
-  const data=[];
-  for(let i=2;i<rows.length;i++){
-    const row=Array.isArray(rows[i])?rows[i]:[];
+  const results=[];
+  for(let i=headerIndex+1;i<matrix.length;i++){
+    const row=Array.isArray(matrix[i])?matrix[i]:[];
     const campaign=idxCampaign>-1?String(row[idxCampaign]??'').trim():'';
     const adGroup=idxAdGroup>-1?String(row[idxAdGroup]??'').trim():'';
     const sku=idxSku>-1?String(row[idxSku]??'').trim():'';
     const asin=idxAsin>-1?String(row[idxAsin]??'').trim():'';
     if(!campaign && !adGroup) continue;
     if(!sku && !asin) continue;
-    data.push({
+    results.push({
       campaign,
       adGroup,
       sku,
@@ -3605,7 +3867,7 @@ async function loadAdvertisedProductsWorkbook(){
       adGroupKey:normalizeAdvertisedKey(adGroup)
     });
   }
-  return data;
+  return results;
 }
 
 function skuEntriesToValues(entries){
@@ -4152,18 +4414,22 @@ function boot(){
 function showLoading(on, options={}){
   const force=!!options.force;
   if(on){
-    loadingDepth=Math.max(loadingDepth+1,1);
+    if(force || allowLoadingIndicator){
+      loadingDepth=Math.max(loadingDepth+1,1);
+    }else{
+      return;
+    }
   }else if(force){
     loadingDepth=0;
   }else if(loadingDepth>0){
     loadingDepth-=1;
   }
-  const active=loadingDepth>0;
+  const activeIndicator=allowLoadingIndicator && loadingDepth>0;
   if(el.status){
-    el.status.classList.toggle('show', active);
-    el.status.style.display=active?'':'none';
+    el.status.classList.toggle('show', activeIndicator);
+    el.status.style.display=activeIndicator?'':'none';
   }
-  if(!active) updateLoadingProgress();
+  if(!activeIndicator) updateLoadingProgress();
 }
 
 function resetKpis(){ Object.values(el.kpi||{}).forEach(node=>{ if(node) node.textContent='—'; }); lastKpiSeries=null; updateKpiSparks(null); }
@@ -4249,6 +4515,7 @@ function setHasData(has, options={}){
   updateTabsUI();
   updateResetButtonVisibility();
   updateDataActionsAvailability();
+  updateAdvertisedSpendSummary();
 }
 
 /* ===== Excel parsing (headers row 2, data from row 3) ===== */
@@ -6299,6 +6566,30 @@ function filterAdvertisedProductRows(rows, campaignValues, adgroupValues, mode){
   });
   return result;
 }
+function updateAdvertisedSpendSummary(){
+  const view=el.advertisedProducts;
+  if(!view || !view.summary || !view.spend){
+    return;
+  }
+  if(!state.hasData){
+    view.summary.hidden=true;
+    view.spend.textContent='—';
+    return;
+  }
+  if(state.advertisedProducts?.placeholder){
+    view.summary.hidden=false;
+    view.spend.textContent='—';
+    return;
+  }
+  const spend=workbookDataStore.getSpend('advertised');
+  if(Number.isFinite(spend)){
+    view.summary.hidden=false;
+    view.spend.textContent=fmt.money(spend);
+  }else{
+    view.summary.hidden=true;
+    view.spend.textContent='—';
+  }
+}
 function setAdvertisedProductsView(status, rows){
   const view=el.advertisedProducts;
   if(!view) return;
@@ -6350,8 +6641,10 @@ function updateAdvertisedProductsDisplay(){
     tracker.renderToken=(tracker.renderToken||0)+1;
   }
   const token=tracker?.renderToken||0;
+  updateAdvertisedSpendSummary();
   if(!state.hasData || state.activeTab!=='campaignPortfolio'){
     view.card.hidden=true;
+    if(view.summary) view.summary.hidden=true;
     return;
   }
   const campaignRoot=el.dd?.campaign;
@@ -6379,13 +6672,35 @@ function updateAdvertisedProductsDisplay(){
   if(!filterMode){
     if(tracker) tracker.lastSlot=null;
     view.card.hidden=true;
+    if(view.summary) view.summary.hidden=true;
     return;
   }
   if(tracker) tracker.lastSlot=filterMode;
   view.card.hidden=false;
+  if(view.summary) view.summary.hidden=false;
   if(tracker?.placeholder){
     const message=tracker.placeholderMessage || state.datasetWarnings?.advertised || ADVERTISED_FALLBACK_MESSAGE;
     setAdvertisedProductsView('placeholder', message);
+    return;
+  }
+  if(tracker && !tracker.loaded){
+    const cached=workbookDataStore.getAdvertisedRows();
+    if(Array.isArray(cached)){
+      tracker.rows=cached.slice(0);
+      tracker.loaded=true;
+      tracker.loadError=false;
+      tracker.placeholder=false;
+      tracker.placeholderMessage='';
+    }
+  }
+  const readyRows=tracker?.loaded ? (Array.isArray(tracker.rows)?tracker.rows:[]) : null;
+  if(readyRows){
+    const filtered=filterAdvertisedProductRows(readyRows, campaignValues, adgroupValues, filterMode);
+    if(filtered.length){
+      setAdvertisedProductsView('rows', filtered);
+    }else{
+      setAdvertisedProductsView('empty');
+    }
     return;
   }
   setAdvertisedProductsView('loading');
