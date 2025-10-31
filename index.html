@@ -85,6 +85,32 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .menu-option-title{font-weight:700;color:var(--text)}
 .menu-option-desc{font-size:12px;color:var(--muted)}
 .menu-option.is-active{border-color:color-mix(in srgb,var(--accent) 45%, var(--border));box-shadow:0 12px 28px rgba(37,99,235,.18)}
+.dataset-modal{position:fixed;inset:0;padding:24px;display:flex;align-items:center;justify-content:center;background:rgba(15,18,22,.58);backdrop-filter:blur(6px);z-index:160;opacity:0;pointer-events:none;transition:opacity .22s ease}
+body.light .dataset-modal{background:rgba(15,23,42,.32)}
+.dataset-modal.open{opacity:1;pointer-events:auto}
+.dataset-modal[hidden]{display:none}
+.dataset-modal__dialog{width:min(520px,100%);background:var(--panel);border-radius:20px;padding:24px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:20px;position:relative}
+.dataset-modal__title{margin:0;font-size:1.5rem;font-weight:800;color:var(--text)}
+.dataset-modal__options{display:flex;flex-direction:column;gap:12px}
+.dataset-option{display:flex;align-items:flex-start;gap:12px;padding:14px 16px;border-radius:16px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--chip) 65%, var(--panel));transition:background .2s ease, box-shadow .25s ease, transform .12s ease}
+.dataset-option:hover{background:color-mix(in srgb,var(--chip) 82%, var(--panel));box-shadow:0 16px 32px rgba(15,23,42,.22);transform:translateY(-1px)}
+.dataset-option input[type=radio]{appearance:none;width:18px;height:18px;border-radius:50%;border:2px solid color-mix(in srgb,var(--muted) 70%, var(--border));margin-top:3px;display:grid;place-items:center;cursor:pointer;transition:border-color .2s ease, background .2s ease}
+.dataset-option input[type=radio]:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.dataset-option input[type=radio]::after{content:"";width:8px;height:8px;border-radius:50%;background:transparent;transition:background .2s ease}
+.dataset-option input[type=radio]:checked{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%, transparent)}
+.dataset-option input[type=radio]:checked::after{background:var(--accent)}
+.dataset-option__body{display:flex;flex-direction:column;gap:4px}
+.dataset-option__title{font-weight:700;color:var(--text);font-size:15px}
+.dataset-option__desc{font-size:13px;color:var(--muted)}
+.dataset-modal__footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.dataset-modal__spinner{display:none;align-items:center;gap:10px;color:var(--muted);font-weight:600}
+.dataset-modal[data-loading="true"] .dataset-modal__spinner{display:inline-flex}
+.dataset-modal__error{display:none;color:var(--danger);font-weight:600}
+.dataset-modal__error.show{display:block}
+.dataset-modal__actions{display:flex;gap:12px;justify-content:flex-end}
+.dataset-modal__actions button{min-width:96px}
+.toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);padding:12px 20px;border-radius:999px;background:var(--panel);color:var(--text);font-weight:600;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .22s ease, transform .22s ease;z-index:170}
+.toast.show{opacity:1;transform:translate(-50%,0)}
 .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
 .header-search{display:flex;justify-content:center;min-width:0}
 .header-filter{grid-template-columns:1fr;min-width:0;width:min(420px,100%)}
@@ -390,32 +416,13 @@ body.has-data #tipPill{display:none !important}
 <header id="appHeader" class="app-header">
   <div class="header-title">
     <div class="menu-control">
-      <div class="menu-toggle" id="menuToggle" role="button" tabindex="0" aria-label="Toggle data menu" aria-haspopup="menu" aria-controls="datasetMenu" aria-expanded="false">
+      <div class="menu-toggle" id="menuToggle" role="button" tabindex="0" aria-label="Choose report data" aria-haspopup="dialog" aria-controls="datasetModal" aria-expanded="false">
         <span class="menu-icon" aria-hidden="true">
           <span></span>
           <span></span>
           <span></span>
         </span>
         <span class="sr-only">Toggle data menu</span>
-      </div>
-      <div id="datasetMenu" class="menu-panel" role="menu" aria-labelledby="menuToggle" aria-hidden="true" hidden>
-        <div class="menu-panel-header">Choose a dataset</div>
-        <form id="datasetMenuForm" class="menu-options" role="none">
-          <label class="menu-option">
-            <input type="radio" name="datasetOption" value="search" checked />
-            <span class="menu-option-text">
-              <span class="menu-option-title">Products Search Term</span>
-              <span class="menu-option-desc">Search term performance data</span>
-            </span>
-          </label>
-          <label class="menu-option">
-            <input type="radio" name="datasetOption" value="advertised" />
-            <span class="menu-option-text">
-              <span class="menu-option-title">Products Advertised Product</span>
-              <span class="menu-option-desc">Advertised product performance</span>
-            </span>
-          </label>
-        </form>
       </div>
     </div>
     <h1 id="headerTitle">
@@ -495,6 +502,43 @@ body.has-data #tipPill{display:none !important}
       </div>
     </div>
   </section>
+
+  <div id="datasetModal" class="dataset-modal" role="dialog" aria-modal="true" aria-labelledby="datasetModalTitle" hidden>
+    <div class="dataset-modal__dialog" role="document">
+      <h2 id="datasetModalTitle" class="dataset-modal__title">Choose Report Data</h2>
+      <form id="datasetForm" class="dataset-modal__form">
+        <div class="dataset-modal__options" role="radiogroup" aria-labelledby="datasetModalTitle">
+          <label class="dataset-option">
+            <input type="radio" name="datasetOption" value="search" />
+            <span class="dataset-option__body">
+              <span class="dataset-option__title">Products Search Term</span>
+              <span class="dataset-option__desc">Search term performance data</span>
+            </span>
+          </label>
+          <label class="dataset-option">
+            <input type="radio" name="datasetOption" value="advertised" />
+            <span class="dataset-option__body">
+              <span class="dataset-option__title">Products Advertised Product</span>
+              <span class="dataset-option__desc">Advertised product performance</span>
+            </span>
+          </label>
+        </div>
+        <div id="datasetError" class="dataset-modal__error" role="alert" hidden></div>
+        <div class="dataset-modal__footer">
+          <div id="datasetLoading" class="dataset-modal__spinner">
+            <span class="spinner" aria-hidden="true"></span>
+            <span>Loading…</span>
+          </div>
+          <div class="dataset-modal__actions">
+            <button type="button" id="datasetCancelBtn" class="btn-outline">Cancel</button>
+            <button type="submit" id="datasetLoadBtn" class="btn-primary">Load</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="appToast" class="toast" role="status" aria-live="polite" hidden></div>
 
   <!-- KPIs -->
   <section class="kpis" id="kpiSection" hidden>
@@ -2159,8 +2203,15 @@ const el={
     clear:document.getElementById('pivotFilterPopupClear')
   },
   menuToggle:document.getElementById('menuToggle'),
-  menuPanel:document.getElementById('datasetMenu'),
-  menuForm:document.getElementById('datasetMenuForm'),
+  datasetModal:{
+    root:document.getElementById('datasetModal'),
+    form:document.getElementById('datasetForm'),
+    load:document.getElementById('datasetLoadBtn'),
+    cancel:document.getElementById('datasetCancelBtn'),
+    spinner:document.getElementById('datasetLoading'),
+    error:document.getElementById('datasetError')
+  },
+  toast:document.getElementById('appToast'),
   pickLocalBtn:document.getElementById('pickLocalBtn'),
   fileInput:document.getElementById('fileInput'),
   dlCsv:document.getElementById('downloadCsvBtn'),
@@ -2227,7 +2278,8 @@ const state={
   filtersReturn:null,
   sql:{db:null, table:'', columns:[], columnMap:new Map(), rowCount:0},
   activeWorkbookOption:'search',
-  customWorkbookLabel:''
+  customWorkbookLabel:'',
+  currentDataset:'search'
 };
 const PIVOT_SORT_KEYS=new Set(['label','sku','spend','sales','acos']);
 
@@ -2262,13 +2314,31 @@ const SEARCH_PIVOT_CONFIG={
     {slot:'targetingCat', column:'targetingCat', fallback:'Targeting CAT'}
   ]
 };
-const INITIAL_FILTER_KEYS=(()=>{
-  const keys=new Set(['term']);
-  (SEARCH_PIVOT_CONFIG.overview||[]).forEach(cfg=>{
-    if(cfg?.column) keys.add(cfg.column);
+function computeDatasetInitialFilterKeys(mapCols, datasetKey, overrideKeys){
+  const normalizedKey=datasetKey && DATASET_CONFIG[datasetKey] ? datasetKey : DEFAULT_DATASET_KEY;
+  if(Array.isArray(overrideKeys) && overrideKeys.length){
+    return Array.from(new Set(overrideKeys.filter(key=>{
+      const col=mapCols?.[key];
+      return !!(col && !col.aliasOf);
+    })));
+  }
+  const keys=[];
+  const addKey=key=>{
+    if(!key) return;
+    if(keys.includes(key)) return;
+    const col=mapCols?.[key];
+    if(!col || col.aliasOf) return;
+    keys.push(key);
+  };
+  if(mapCols?.term && !mapCols.term.aliasOf){
+    addKey('term');
+  }
+  const overview=DATASET_CONFIG[normalizedKey]?.pivotConfig?.overview||[];
+  overview.forEach(cfg=>{
+    if(cfg?.column) addKey(cfg.column);
   });
-  return Array.from(keys);
-})();
+  return keys;
+}
 const ADVERTISED_PIVOT_CONFIG={
   overview:SEARCH_PIVOT_CONFIG.overview,
   campaignPortfolio:SEARCH_PIVOT_CONFIG.campaignPortfolio
@@ -2290,6 +2360,25 @@ const DATASET_CONFIG={
   }
 };
 const DEFAULT_DATASET_KEY='search';
+const DATASET_STORAGE_KEY='dataset:lastSelection';
+const DATASET_COLUMN_MAPS={
+  search:null,
+  advertised:{
+    date:['date','day','reportingdate'],
+    store:['store','market','account','locale'],
+    lo:['lineofbusiness','lo','business'],
+    impressions:['impressions','impr'],
+    clicks:['clicks'],
+    revenue:['attributedsales','sales','revenue'],
+    spend:['spend','advertisingcost','cost'],
+    category:['category','producttype','cat'],
+    campaign:['campaignname','campaign'],
+    adgroup:['adgroupname','ad group name','adgroup'],
+    portfolio:['portfolioname','portfolio'],
+    targetingAsin:['advertisedasin','asin'],
+    targetingCat:['advertisedsku','sku']
+  }
+};
 
 function getDatasetConfigForKey(key){
   return DATASET_CONFIG[key] || DATASET_CONFIG[DEFAULT_DATASET_KEY];
@@ -2350,6 +2439,9 @@ let advertisedProductsPromise=null;
 let defaultWorkbookPromise=null;
 let defaultWorkbookTimer=null;
 let loadingDepth=0;
+let datasetRequestToken=0;
+let datasetModalReturnFocus=null;
+let toastTimer=null;
 
 function getWorkbookOption(id){
   if(!id) return null;
@@ -2365,6 +2457,12 @@ function findWorkbookOptionByFile(file){
   })||null;
 }
 
+function getDatasetColumnMap(id){
+  if(!id) return null;
+  const map=DATASET_COLUMN_MAPS[id];
+  return map||null;
+}
+
 function updateDatasetDisplay(){
   const toggle=el.menuToggle;
   const option=state.activeWorkbookOption?getWorkbookOption(state.activeWorkbookOption):null;
@@ -2377,11 +2475,12 @@ function updateDatasetDisplay(){
   const datasetConfig=getActiveDatasetConfig();
   const headerTitle=datasetConfig?.title || label;
   if(toggle){
-    let aria='Toggle data menu';
+    let aria='Choose report data';
     if(label){
       aria+=`. Current selection: ${label}`;
     }
     toggle.setAttribute('aria-label', aria);
+    toggle.setAttribute('aria-expanded', isDatasetModalOpen()?'true':'false');
   }
   if(el.headerTitleText){
     el.headerTitleText.textContent=headerTitle || '';
@@ -2395,28 +2494,13 @@ function updateDatasetDisplay(){
     const title=datasetConfig.pageTitle || headerTitle || document.title;
     if(title) document.title=title;
   }
-  if(el.menuForm){
-    const inputs=Array.from(el.menuForm.querySelectorAll('input[name="datasetOption"]'));
-    let fallbackInput=null;
-    inputs.forEach((input,index)=>{
-      const checked=!!state.activeWorkbookOption && input.value===state.activeWorkbookOption;
-      input.checked=checked;
-      input.setAttribute('aria-checked', checked?'true':'false');
-      input.setAttribute('role','menuitemradio');
-      input.setAttribute('tabindex', checked?'0':'-1');
-      if(checked) input.parentElement?.classList.add('is-active');
-      else input.parentElement?.classList.remove('is-active');
-      if(index===0) fallbackInput=input;
-    });
-    if(!state.activeWorkbookOption && fallbackInput){
-      fallbackInput.setAttribute('tabindex','0');
-    }
-  }
+  syncDatasetFormSelection();
   updateTabsUI();
 }
 
 function setActiveWorkbookOption(id){
   state.activeWorkbookOption=id||null;
+  if(id) state.currentDataset=id;
   if(id) state.customWorkbookLabel='';
   updateDatasetDisplay();
 }
@@ -2425,43 +2509,236 @@ function setCustomWorkbookLabel(label){
   state.customWorkbookLabel=label?String(label):'';
   if(label){
     state.activeWorkbookOption=null;
+    state.currentDataset='custom';
+    localStorage.removeItem(DATASET_STORAGE_KEY);
   }
   updateDatasetDisplay();
 }
 
-function isDatasetMenuOpen(){
-  return !!el.menuPanel && el.menuPanel.classList.contains('open');
+function isDatasetModalOpen(){
+  const modal=el.datasetModal?.root;
+  return !!(modal && modal.classList.contains('open'));
 }
 
-function toggleDatasetMenu(force){
-  const open=typeof force==='boolean'?force:!isDatasetMenuOpen();
-  if(!el.menuPanel || !el.menuToggle) return;
-  if(open){
-    el.menuPanel.classList.add('open');
-    el.menuPanel.removeAttribute('hidden');
-    el.menuPanel.setAttribute('aria-hidden','false');
-    el.menuToggle.classList.add('is-active');
-    el.menuToggle.setAttribute('aria-expanded','true');
-    clampPanelRight(el.menuPanel);
-    const firstInput=el.menuPanel.querySelector('input[name="datasetOption"]');
-    if(firstInput) firstInput.focus({preventScroll:true});
-  }else{
-    el.menuPanel.classList.remove('open');
-    el.menuPanel.setAttribute('hidden','');
-    el.menuPanel.setAttribute('aria-hidden','true');
-    el.menuToggle.classList.remove('is-active');
-    el.menuToggle.setAttribute('aria-expanded','false');
+function syncDatasetFormSelection(){
+  const form=el.datasetModal?.form;
+  if(!form) return;
+  const inputs=Array.from(form.querySelectorAll('input[name="datasetOption"]'));
+  if(!inputs.length) return;
+  let targetId=state.activeWorkbookOption || DEFAULT_DATASET_KEY;
+  if(targetId && !DATASET_CONFIG[targetId]) targetId=DEFAULT_DATASET_KEY;
+  let selected=null;
+  inputs.forEach(input=>{
+    const isMatch=input.value===targetId;
+    input.checked=isMatch;
+    input.parentElement?.classList.toggle('is-active', isMatch);
+    if(isMatch) selected=input;
+  });
+  if(!selected){
+    inputs[0].checked=true;
+    inputs[0].parentElement?.classList.add('is-active');
   }
 }
 
-function closeDatasetMenu(focusToggle=false){
-  if(!isDatasetMenuOpen()) return false;
-  toggleDatasetMenu(false);
-  if(focusToggle && el.menuToggle){
-    try{ el.menuToggle.focus({preventScroll:true}); }
-    catch(_){ el.menuToggle.focus(); }
+function setDatasetModalLoading(on){
+  const modal=el.datasetModal?.root;
+  if(!modal) return;
+  modal.dataset.loading = on?'true':'false';
+  const form=el.datasetModal.form;
+  if(form){
+    form.querySelectorAll('input[name="datasetOption"]').forEach(input=>{
+      input.disabled=on;
+    });
   }
-  return true;
+  if(el.datasetModal.load) el.datasetModal.load.disabled=on;
+  if(el.datasetModal.cancel) el.datasetModal.cancel.disabled=on;
+}
+
+function clearDatasetModalError(){
+  const error=el.datasetModal?.error;
+  if(!error) return;
+  error.textContent='';
+  error.hidden=true;
+  error.classList.remove('show');
+}
+
+function showDatasetModalError(message){
+  const error=el.datasetModal?.error;
+  if(!error) return;
+  error.textContent=message||'Unable to load dataset.';
+  error.hidden=false;
+  error.classList.add('show');
+}
+
+function getDatasetModalFocusables(){
+  const modal=el.datasetModal?.root;
+  if(!modal) return [];
+  const selectors=['button:not([disabled])','input:not([disabled])','[tabindex="0"]'];
+  const nodes=Array.from(modal.querySelectorAll(selectors.join(',')));
+  return nodes.filter(node=>node.offsetParent!==null || node===document.activeElement);
+}
+
+function handleDatasetModalKeydown(event){
+  if(event.key==='Escape'){
+    event.preventDefault();
+    closeDatasetModal(true);
+    return;
+  }
+  if(event.key==='Tab'){
+    const focusables=getDatasetModalFocusables();
+    if(!focusables.length) return;
+    const current=document.activeElement;
+    let index=focusables.indexOf(current);
+    if(index<0) index=0;
+    if(event.shiftKey){
+      index=index<=0?focusables.length-1:index-1;
+    }else{
+      index=index===focusables.length-1?0:index+1;
+    }
+    event.preventDefault();
+    const target=focusables[index];
+    if(target){
+      try{ target.focus({preventScroll:true}); }
+      catch(_){ target.focus(); }
+    }
+  }
+}
+
+function openDatasetModal(){
+  const modal=el.datasetModal?.root;
+  if(!modal) return;
+  syncDatasetFormSelection();
+  clearDatasetModalError();
+  setDatasetModalLoading(false);
+  datasetModalReturnFocus=document.activeElement instanceof HTMLElement?document.activeElement:null;
+  modal.classList.add('open');
+  modal.removeAttribute('hidden');
+  if(el.menuToggle) el.menuToggle.setAttribute('aria-expanded','true');
+  const focusable=getDatasetModalFocusables();
+  const target=focusable.find(node=>node.tagName==='INPUT') || focusable[0];
+  if(target){
+    try{ target.focus({preventScroll:true}); }
+    catch(_){ target.focus(); }
+  }
+  modal.addEventListener('keydown', handleDatasetModalKeydown);
+}
+
+function closeDatasetModal(focusReturn=false){
+  const modal=el.datasetModal?.root;
+  if(!modal) return;
+  modal.classList.remove('open');
+  modal.setAttribute('hidden','');
+  modal.removeEventListener('keydown', handleDatasetModalKeydown);
+  if(el.menuToggle) el.menuToggle.setAttribute('aria-expanded','false');
+  if(focusReturn && datasetModalReturnFocus){
+    try{ datasetModalReturnFocus.focus({preventScroll:true}); }
+    catch(_){ datasetModalReturnFocus.focus(); }
+  }
+  datasetModalReturnFocus=null;
+}
+
+function handleDatasetOptionChange(event){
+  const input=event.target;
+  if(!input || input.name!=='datasetOption') return;
+  const labels=Array.from(input.form?.querySelectorAll('.dataset-option')||[]);
+  labels.forEach(label=>{
+    const radio=label.querySelector('input[name="datasetOption"]');
+    label.classList.toggle('is-active', !!radio?.checked);
+  });
+}
+
+async function loadDatasetSelection(datasetId){
+  const option=getWorkbookOption(datasetId);
+  if(!option){
+    showDatasetModalError('Dataset is unavailable.');
+    return;
+  }
+  if(option.id===state.activeWorkbookOption && state.hasData){
+    closeDatasetModal(true);
+    showToast(`Loaded: ${option.label}`);
+    return;
+  }
+  clearDatasetModalError();
+  setDatasetModalLoading(true);
+  const previousOption=state.activeWorkbookOption;
+  const previousLabel=state.customWorkbookLabel;
+  let requestToken=null;
+  try{
+    setHasData(false);
+    showLoading(true);
+    const columnMap=getDatasetColumnMap(option.id);
+    const result=await loadExcel(option.file, columnMap, option.id);
+    requestToken=result?.token;
+    if(!result?.success){
+      return;
+    }
+    state.currentDataset=option.id;
+    setActiveWorkbookOption(option.id);
+    localStorage.setItem(DATASET_STORAGE_KEY, option.id);
+    closeDatasetModal(true);
+    showToast(`Loaded: ${option.label}`);
+  }catch(err){
+    console.error('Failed to load workbook option:', err);
+    showDatasetModalError('Failed to load workbook. Please try again.');
+    if(previousOption){
+      setActiveWorkbookOption(previousOption);
+    }else if(previousLabel){
+      setCustomWorkbookLabel(previousLabel);
+    }
+  }finally{
+    showLoading(false);
+    if(requestToken===null || requestToken===datasetRequestToken){
+      setDatasetModalLoading(false);
+    }
+  }
+}
+
+function handleDatasetFormSubmit(event){
+  event.preventDefault();
+  const form=el.datasetModal?.form;
+  if(!form) return;
+  const selected=form.querySelector('input[name="datasetOption"]:checked');
+  if(!selected){
+    showDatasetModalError('Please choose a dataset.');
+    return;
+  }
+  loadDatasetSelection(selected.value);
+}
+
+function setupDatasetModal(){
+  const form=el.datasetModal?.form;
+  if(form){
+    form.addEventListener('submit', handleDatasetFormSubmit);
+    form.addEventListener('change', handleDatasetOptionChange);
+  }
+  if(el.datasetModal?.cancel){
+    el.datasetModal.cancel.addEventListener('click', ()=>closeDatasetModal(true));
+  }
+  const modal=el.datasetModal?.root;
+  if(modal){
+    modal.addEventListener('click', (event)=>{
+      if(event.target===modal) closeDatasetModal(true);
+    });
+  }
+}
+
+function showToast(message){
+  const node=el.toast;
+  if(!node) return;
+  node.textContent=message||'';
+  node.hidden=false;
+  node.classList.add('show');
+  if(toastTimer) clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>{
+    node.classList.remove('show');
+    toastTimer=null;
+    setTimeout(()=>{
+      if(!node.classList.contains('show')){
+        node.hidden=true;
+        node.textContent='';
+      }
+    },220);
+  },2400);
 }
 
 function normalizeWorkbookPath(file){
@@ -2546,47 +2823,21 @@ async function fetchWorkbookBuffer(file){
   throw new Error(`Workbook not available: ${file}`);
 }
 
-async function loadWorkbookOption(option){
-  if(!option) return false;
-  const buf=await fetchWorkbookBuffer(option.file);
-  await loadWorkbookBuffer(buf);
-  return true;
+async function loadExcel(url, columnMap, datasetKey){
+  if(!url) throw new Error('Workbook path missing');
+  const target=encodeURI(url);
+  const requestId=++datasetRequestToken;
+  const buffer=await fetchWorkbookBuffer(target);
+  if(datasetRequestToken!==requestId) return {success:false, token:requestId};
+  await loadWorkbookBuffer(buffer,{columnMap,datasetKey});
+  if(datasetRequestToken!==requestId) return {success:false, token:requestId};
+  return {success:true, token:requestId};
 }
 
-async function handleDatasetMenuChange(ev){
-  const input=ev.target;
-  if(!input || input.name!=='datasetOption') return;
-  ev.preventDefault();
-  const value=input.value;
-  const option=value?getWorkbookOption(value):null;
-  if(!option){
-    closeDatasetMenu(false);
-    return;
-  }
-  if(state.activeWorkbookOption===option.id){
-    closeDatasetMenu(false);
-    return;
-  }
-  const previousOption=state.activeWorkbookOption;
-  const previousCustom=state.customWorkbookLabel;
-  if(option.id){
-    setActiveWorkbookOption(option.id);
-  }
-  closeDatasetMenu(false);
-  showLoading(true);
-  try{
-    await loadWorkbookOption(option);
-  }catch(err){
-    console.error('Failed to load workbook option:', err);
-    alert('Failed to load workbook: '+(err?.message||err));
-    if(previousOption){
-      setActiveWorkbookOption(previousOption);
-    }else{
-      setCustomWorkbookLabel(previousCustom||'');
-    }
-  }finally{
-    showLoading(false);
-  }
+async function loadWorkbookOption(option){
+  if(!option) return false;
+  const result=await loadExcel(option.file, getDatasetColumnMap(option.id), option.id);
+  return !!result?.success;
 }
 
 function ensureAsinSkuMap(){
@@ -2928,6 +3179,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const saved=localStorage.getItem('theme')||'dark';
   if(saved==='light') document.body.classList.add('light');
   updateThemeBtn();
+  const savedDatasetKey=localStorage.getItem(DATASET_STORAGE_KEY);
+  if(savedDatasetKey && getWorkbookOption(savedDatasetKey)){
+    state.activeWorkbookOption=savedDatasetKey;
+    state.currentDataset=savedDatasetKey;
+  }
   updateDatasetDisplay();
   el.themeBtn.addEventListener('click',()=>{
     document.body.classList.toggle('light');
@@ -3267,38 +3523,22 @@ function boot(){
   }
   if(el.monthCustomApply) el.monthCustomApply.addEventListener('click', applyCustomRangeFromInputs);
   if(el.monthCustomCancel) el.monthCustomCancel.addEventListener('click', handleCustomRangeCancel);
-  if(el.menuForm) el.menuForm.addEventListener('change', handleDatasetMenuChange);
+  setupDatasetModal();
   if(el.menuToggle){
+    el.menuToggle.addEventListener('click', (event)=>{
+      event.preventDefault();
+      if(isDatasetModalOpen()) closeDatasetModal(true);
+      else openDatasetModal();
+    });
     el.menuToggle.addEventListener('keydown', (event)=>{
-      if(event.key==='Enter' || event.key===' ' || event.key==='Spacebar'){
+      if(event.key==='Enter' || event.key===' ' || event.key==='Spacebar' || event.key==='ArrowDown'){
         event.preventDefault();
-        toggleDatasetMenu();
-      }else if(event.key==='ArrowDown'){
-        event.preventDefault();
-        const wasOpen=isDatasetMenuOpen();
-        if(!wasOpen){
-          toggleDatasetMenu(true);
-        }
-        const firstInput=el.menuPanel?.querySelector('input[name="datasetOption"]');
-        if(firstInput){
-          try{ firstInput.focus({preventScroll:true}); }
-          catch(_){ firstInput.focus(); }
-        }
+        if(!isDatasetModalOpen()) openDatasetModal();
       }
     });
   }
 
   document.addEventListener('click', (e)=>{
-    const toggle=el.menuToggle;
-    const menuRoot=el.menuPanel;
-    const clickedToggle=toggle?.contains?.(e.target);
-    const clickedMenu=menuRoot?.contains?.(e.target);
-    if(clickedToggle){
-      e.preventDefault();
-      toggleDatasetMenu();
-    }else if(menuRoot && menuRoot.classList.contains('open') && !clickedMenu){
-      closeDatasetMenu(false);
-    }
     const monthRoot=el.monthDD;
     const clickedInsideMonth=monthRoot?.contains?.(e.target);
     if(monthRoot && !clickedInsideMonth && monthRoot.classList.contains('open')){
@@ -3345,7 +3585,8 @@ function boot(){
 
   document.addEventListener('keydown', (ev)=>{
     if(ev.key==='Escape' || ev.key==='Esc'){
-      if(closeDatasetMenu(true)){
+      if(isDatasetModalOpen()){
+        closeDatasetModal(true);
         ev.stopPropagation();
         ev.preventDefault();
         return;
@@ -3476,13 +3717,34 @@ function findIndexByTokens(headers, tokens){
   for(let i=0;i<HX.length;i++){ const h=HX[i]; if(tokens.some(t=>h.includes(t))) return i; }
   return -1;
 }
+const COLUMN_TOKEN_SETS={
+  date:['date','day','reportingdate'],
+  store:['store','lo','market','site','locale','country','account'],
+  lo:['lo','lineofbusiness','lob','store','market'],
+  impressions:['impressions','impr'],
+  clicks:['clicks'],
+  revenue:['sales','revenue','totalsales','orderedrevenue','attributedsales'],
+  spend:['spend','adspend','cost','advertisingcost'],
+  category:['category','producttype','cat'],
+  ttype:['targetingtype','adtype','type'],
+  tsub:['targetingsubtype','matchtype','subtype'],
+  tsub2:['subtype2','matchtype2'],
+  term:['customersearchterm','searchterm','term'],
+  customerType:['customersearchtermtype','searchtermtype'],
+  targetingAsin:['targetingasin','targetasin','advertisedasin','asin'],
+  targetingCat:['targetingcat','targetcat'],
+  placement:['placement','placements'],
+  campaign:['campaignname','campaign'],
+  adgroup:['adgroupname','ad group name','adgroup'],
+  portfolio:['portfolioname','portfolio']
+};
 async function handleLocalFile(e){
   const f = e.target.files && e.target.files[0];
   if(!f) return;
   try{
     showLoading(true);
     const buf = await f.arrayBuffer();
-    await loadWorkbookBuffer(buf);
+    await loadWorkbookBuffer(buf,{});
     setCustomWorkbookLabel(f.name||'Custom Workbook');
   }catch(err){
     console.error(err);
@@ -3493,8 +3755,8 @@ async function handleLocalFile(e){
     e.target.value='';
   }
 }
-async function loadWorkbookBuffer(buf){
-  await parseExcel(buf);
+async function loadWorkbookBuffer(buf, options={}){
+  await parseExcel(buf, options);
   setHasData(true);
 }
 async function attemptPreprocessedData(){
@@ -3524,9 +3786,14 @@ async function attemptPreprocessedData(){
           continue;
         }
         const headerRowIndex=Number.isInteger(payload?.header_row_index)?payload.header_row_index:1;
-        await buildStateFromSheetData(sheetData,{headerRowIndex});
+        await buildStateFromSheetData(sheetData,{
+          headerRowIndex,
+          columnMap:getDatasetColumnMap('search'),
+          datasetKey:'search'
+        });
         setHasData(true);
         setActiveWorkbookOption('search');
+        localStorage.setItem(DATASET_STORAGE_KEY,'search');
         return;
       }catch(err){
         console.warn(`Failed to load preprocessed data from ${file}:`, err);
@@ -3546,12 +3813,13 @@ async function attemptDefaultWorkbook(){
     for(const file of files){
       if(state.hasData) return;
       try{
-        const buf=await fetchWorkbookBuffer(file);
-        if(state.hasData) return;
-        await loadWorkbookBuffer(buf);
         const matchedOption=findWorkbookOptionByFile(file);
+        const columnMap=getDatasetColumnMap(matchedOption?.id);
+        const result=await loadExcel(file, columnMap, matchedOption?.id);
+        if(!result?.success) continue;
         if(matchedOption){
           setActiveWorkbookOption(matchedOption.id);
+          localStorage.setItem(DATASET_STORAGE_KEY, matchedOption.id);
         }else{
           setCustomWorkbookLabel(file);
         }
@@ -3578,7 +3846,7 @@ function ensureDefaultWorkbook(){
   defaultWorkbookPromise=attemptDefaultWorkbook().finally(()=>{ defaultWorkbookPromise=null; });
   return defaultWorkbookPromise;
 }
-async function parseExcel(buf){
+async function parseExcel(buf, options={}){
   const wb = XLSX.read(buf, { type:'array', cellDates:true, cellNF:true, cellText:false });
   let best=null,score=-1;
   for(const name of wb.SheetNames){
@@ -3613,7 +3881,12 @@ async function parseExcel(buf){
     defval:null,
     dense:true
   });
-  await buildStateFromSheetData(sheetData,{headerRowIndex:1});
+  await buildStateFromSheetData(sheetData,{
+    headerRowIndex:1,
+    columnMap:options?.columnMap,
+    datasetKey:options?.datasetKey,
+    initialFilterKeys:options?.initialFilterKeys
+  });
 }
 
 async function buildStateFromSheetData(sheetData, options={}){
@@ -3623,35 +3896,55 @@ async function buildStateFromSheetData(sheetData, options={}){
   const headerRowIndex=Number.isInteger(options?.headerRowIndex)?options.headerRowIndex:1;
   const headerRow=Array.isArray(sheetData[headerRowIndex])?sheetData[headerRowIndex]:[];
   const headers=headerRow.map(h=>String(h??'').trim());
+  const datasetKey=options?.datasetKey || getActiveDatasetKey();
   const dataRowsRaw=sheetData.slice(headerRowIndex+1);
   const totalRows=dataRowsRaw.length;
   const progressStep=computeProgressStep(totalRows);
   let processedRows=0;
   if(progressStep) updateLoadingProgress(0,totalRows);
 
+  const overrides=options?.columnMap || null;
+  const resolveColumnIndex=(key)=>{
+    const baseTokens=COLUMN_TOKEN_SETS[key]||[];
+    const override=overrides && overrides[key];
+    if(Number.isInteger(override)) return override;
+    let tokens=baseTokens;
+    if(override){
+      if(Array.isArray(override)) tokens=[...override,...baseTokens];
+      else if(typeof override==='string') tokens=[override,...baseTokens];
+      else if(Array.isArray(override.tokens)) tokens=[...override.tokens,...baseTokens];
+      else if(Number.isInteger(override.index)) return override.index;
+    }
+    const idx=Array.isArray(tokens) && tokens.length ? findIndexByTokens(headers,tokens) : -1;
+    if(idx>-1) return idx;
+    if(override && Number.isInteger(override.fallbackIndex)) return override.fallbackIndex;
+    return -1;
+  };
+
   const cols={
-    date:       findIndexByTokens(headers,['date','day','reportingdate']),
-    store:      findIndexByTokens(headers,['store','lo','market','site','locale','country','account']),
-    lo:         findIndexByTokens(headers,['lo','lineofbusiness','lob','store','market']),
-    impressions:findIndexByTokens(headers,['impressions','impr']),
-    clicks:     findIndexByTokens(headers,['clicks']),
-    revenue:    findIndexByTokens(headers,['sales','revenue','totalsales','orderedrevenue','attributedsales']),
-    spend:      findIndexByTokens(headers,['spend','adspend','cost','advertisingcost']),
-    category:   findIndexByTokens(headers,['category','producttype','cat']),
-    ttype:      findIndexByTokens(headers,['targetingtype','adtype','type']),
-    tsub:       findIndexByTokens(headers,['targetingsubtype','matchtype','subtype']),
-    tsub2:      findIndexByTokens(headers,['subtype2','matchtype2']),
-    term:       findIndexByTokens(headers,['customersearchterm','searchterm','term']),
-    customerType:findIndexByTokens(headers,['customersearchtermtype','searchtermtype']),
-    targetingAsin:findIndexByTokens(headers,['targetingasin','targetasin','advertisedasin','asin']),
-    targetingCat: findIndexByTokens(headers,['targetingcat','targetcat']),
-    placement:  findIndexByTokens(headers,['placement','placements']),
-    campaign:   findIndexByTokens(headers,['campaignname','campaign']),
-    adgroup:    findIndexByTokens(headers,['adgroupname','ad group name','adgroup']),
-    portfolio:  findIndexByTokens(headers,['portfolioname','portfolio']),
+    date:resolveColumnIndex('date'),
+    store:resolveColumnIndex('store'),
+    lo:resolveColumnIndex('lo'),
+    impressions:resolveColumnIndex('impressions'),
+    clicks:resolveColumnIndex('clicks'),
+    revenue:resolveColumnIndex('revenue'),
+    spend:resolveColumnIndex('spend'),
+    category:resolveColumnIndex('category'),
+    ttype:resolveColumnIndex('ttype'),
+    tsub:resolveColumnIndex('tsub'),
+    tsub2:resolveColumnIndex('tsub2'),
+    term:resolveColumnIndex('term'),
+    customerType:resolveColumnIndex('customerType'),
+    targetingAsin:resolveColumnIndex('targetingAsin'),
+    targetingCat:resolveColumnIndex('targetingCat'),
+    placement:resolveColumnIndex('placement'),
+    campaign:resolveColumnIndex('campaign'),
+    adgroup:resolveColumnIndex('adgroup'),
+    portfolio:resolveColumnIndex('portfolio')
   };
   const mapCols={}; for(const [k,idx] of Object.entries(cols)){ if(idx>-1) mapCols[k]={name:headers[idx],idx}; }
   if(mapCols.store && !mapCols.lo) mapCols.lo = {...mapCols.store, aliasOf:'store'}; // fallback
+  const initialFilterKeys=computeDatasetInitialFilterKeys(mapCols, datasetKey, options?.initialFilterKeys);
   state.columns=mapCols;
   if(mapCols.targetingAsin) ensureAsinSkuMap();
   const numericIdx=new Set([mapCols.impressions?.idx,mapCols.clicks?.idx,mapCols.revenue?.idx,mapCols.spend?.idx].filter(idx=>Number.isInteger(idx)));
@@ -3741,7 +4034,7 @@ async function buildStateFromSheetData(sheetData, options={}){
   resetConversionPaging();
   buildSqlIndexes();
   buildMonths();
-  const {token:filterToken, remainingKeys}=initFilters({initialKeys:INITIAL_FILTER_KEYS});
+  const {token:filterToken, remainingKeys}=initFilters({initialKeys:initialFilterKeys});
   renderAll();
   if(Array.isArray(remainingKeys) && remainingKeys.length){
     scheduleDeferredFilterBuild(remainingKeys, filterToken);
