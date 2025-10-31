@@ -175,23 +175,17 @@ body.light .menuix-modal{background:color-mix(in srgb,var(--bg) 45%, rgba(15,23,
   .actions{justify-content:center}
   .header-search{width:100%}
 }
-body:not(.has-data) .app-header{display:none}
 
 /* Layout */
 #contentWrap{flex:1;display:flex;flex-direction:column;gap:14px;padding:12px clamp(14px,3vw,28px) 28px}
-body:not(.has-data) #contentWrap{justify-content:center;padding:0 18px}
-.empty-state{display:none;text-align:center;font-weight:600;color:var(--muted);line-height:1.6;max-width:520px;margin:0 auto;font-size:15px}
+.empty-state{display:none !important;text-align:center;font-weight:600;color:var(--muted);line-height:1.6;max-width:520px;margin:0 auto;font-size:15px}
 .empty-state span{color:var(--accent);cursor:pointer;text-decoration:underline;font-weight:700}
 .empty-state span:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
-body:not(.has-data) #emptyState{display:flex;align-items:center;justify-content:center;min-height:60vh}
-body.has-data #emptyState{display:none}
-body:not(.has-data) #topLine,
-body:not(.has-data) #kpiSection,
-body:not(.has-data) #pivotSection{display:none !important}
+#emptyState{display:none !important}
 
 /* Topline */
 .topline{display:flex;flex-direction:column;align-items:flex-start;gap:12px;padding:8px clamp(14px,3vw,28px)}
-body.has-data #tipPill{display:none !important}
+.topline #tipPill{display:none !important}
 .topline-controls{display:flex;flex-wrap:wrap;align-items:center;gap:12px;width:100%}
 .pivot-tabs-bar{display:flex;align-items:center;justify-content:flex-start;flex:1 1 auto;min-width:0}
 .pivot-tabs{display:inline-flex;align-items:center;gap:6px;padding:4px;border-radius:14px;border:1px solid var(--border);background:var(--panel);box-shadow:var(--shadow)}
@@ -2319,7 +2313,8 @@ const state={
   activeWorkbookOption:'search',
   customWorkbookLabel:'',
   currentDataset:'search',
-  datasetWarnings:{advertised:null},
+  datasetWarnings:{search:null,advertised:null},
+  datasetPlaceholders:{search:false,advertised:false},
   datasetLoadingId:null,
   datasetRetrying:false
 };
@@ -2532,8 +2527,8 @@ const WORKBOOK_OPTIONS=[
     id:'advertised',
     label:'Products Advertised Product',
     description:'Advertised product performance',
-    file:'Products%20Advertised%20Product.xlsx',
-    aliases:['Products Advertised Product.xlsx']
+    file:'Products Advertised Product.xlsx',
+    aliases:['Products%20Advertised%20Product.xlsx']
   }
 ];
 const WORKBOOK_OPTION_MAP=new Map(WORKBOOK_OPTIONS.map(opt=>[opt.id,opt]));
@@ -2548,7 +2543,8 @@ const DEFAULT_WORKBOOKS=[
   ...new Set(WORKBOOK_OPTIONS.flatMap(opt=>[opt.file,...(opt.aliases||[])]))
 ];
 const ASIN_SKU_WORKBOOK='ASINwise SKU.xlsx';
-const ADVERTISED_PRODUCTS_WORKBOOK='Products%20Advertised%20Product.xlsx';
+const ADVERTISED_PRODUCTS_WORKBOOK='Products Advertised Product.xlsx';
+const SEARCH_FALLBACK_MESSAGE='Failed to load workbook. Showing placeholders.';
 const ADVERTISED_FALLBACK_MESSAGE='Failed to load workbook. Showing placeholders.';
 const ADVERTISED_FALLBACK_HEADERS=['Date','Store','LO','Impressions','Clicks','Sales','Spend','Category','Targeting Type','Targeting Sub Type','Portfolio Name','Campaign Name','Ad Group Name','Advertised ASIN','Advertised SKU'];
 let asinSkuPromise=null;
@@ -2557,6 +2553,8 @@ let defaultWorkbookPromise=null;
 let defaultWorkbookTimer=null;
 let loadingDepth=0;
 let datasetRequestToken=0;
+let globalLoadingLocked=false;
+let initialDatasetPromise=null;
 let datasetModalReturnFocus=null;
 let toastTimer=null;
 
@@ -2628,7 +2626,8 @@ function cacheDatasetState(datasetKey){
       columnMapEntries,
       dbExport
     },
-    datasetWarning:state.datasetWarnings?.[key]??null
+    datasetWarning:state.datasetWarnings?.[key]??null,
+    datasetPlaceholder:!!(state.datasetPlaceholders && state.datasetPlaceholders[key])
   };
   datasetStateCache.set(key, snapshot);
 }
@@ -2677,6 +2676,8 @@ async function restoreDatasetState(datasetKey){
   state.customWorkbookLabel='';
   if(!state.datasetWarnings) state.datasetWarnings={};
   state.datasetWarnings[key]=cached.datasetWarning??null;
+  if(!state.datasetPlaceholders) state.datasetPlaceholders={search:false,advertised:false};
+  state.datasetPlaceholders[key]=!!cached.datasetPlaceholder;
   syncDatasetFormSelection();
   updateDatasetDisplay();
   updateTabsUI();
@@ -2818,7 +2819,7 @@ function refreshDatasetWarning(){
     wrap.hidden=false;
     if(textNode) textNode.textContent=message;
     if(retryBtn){
-      const showRetry=activeKey==='advertised';
+      const showRetry=activeKey==='advertised' || activeKey==='search';
       retryBtn.hidden=!showRetry;
       retryBtn.disabled=!!isLoading || !!state.datasetRetrying;
     }
@@ -2999,6 +3000,38 @@ function createAdvertisedFallbackSheetData(){
   return [[], headers, emptyRow];
 }
 
+function createSearchFallbackSheetData(){
+  const headers=['Date','Store','LO','Impressions','Clicks','Sales','Spend','Category','Targeting Type','Targeting Sub Type','Customer Search Term','Customer Search Term - TYPE','Campaign Name','Ad Group Name','Portfolio Name','Targeting ASIN','Targeting CAT'];
+  const placeholderRow=['—','—','—',0,0,0,0,'—','—','—','—','—','—','—','—','—','—'];
+  return [[], headers, placeholderRow];
+}
+
+async function applySearchDatasetFallback(message){
+  const note=message||SEARCH_FALLBACK_MESSAGE;
+  try{
+    const sheetData=createSearchFallbackSheetData();
+    await buildStateFromSheetData(sheetData,{
+      headerRowIndex:1,
+      columnMap:getDatasetColumnMap('search'),
+      datasetKey:'search'
+    });
+    setActiveWorkbookOption('search');
+    localStorage.setItem(DATASET_STORAGE_KEY,'search');
+    if(!state.datasetPlaceholders) state.datasetPlaceholders={search:false,advertised:false};
+    state.datasetPlaceholders.search=true;
+    setHasData(true);
+    renderAll();
+    cacheDatasetState('search');
+    setDatasetWarning('search', note);
+    updateDataActionsAvailability();
+    return true;
+  }catch(err){
+    console.error('Failed to apply search dataset fallback:', err);
+    setDatasetWarning('search', note);
+    return false;
+  }
+}
+
 async function applyAdvertisedDatasetFallback(){
   try{
     const sheetData=createAdvertisedFallbackSheetData();
@@ -3009,6 +3042,8 @@ async function applyAdvertisedDatasetFallback(){
     });
     setActiveWorkbookOption('advertised');
     localStorage.setItem(DATASET_STORAGE_KEY,'advertised');
+    if(!state.datasetPlaceholders) state.datasetPlaceholders={search:false,advertised:false};
+    state.datasetPlaceholders.advertised=true;
     if(state.advertisedProducts){
       state.advertisedProducts.renderToken=0;
       state.advertisedProducts.placeholder=true;
@@ -3041,10 +3076,18 @@ function clearAdvertisedFallbackState(){
   }
   advertisedProductsPromise=null;
   setDatasetWarning('advertised', null);
+  if(state.datasetPlaceholders) state.datasetPlaceholders.advertised=false;
 }
 
 function retryAdvertisedDataset(){
   if(state.datasetRetrying || state.datasetLoadingId==='advertised') return;
+  const placeholderActive=!!(state.datasetPlaceholders && state.datasetPlaceholders.advertised);
+  const cached=datasetStateCache.get('advertised');
+  if(cached && !placeholderActive){
+    setDatasetWarning('advertised', null);
+    refreshDatasetWarning();
+    return;
+  }
   state.datasetRetrying=true;
   refreshDatasetWarning();
   if(state.advertisedProducts){
@@ -3057,10 +3100,56 @@ function retryAdvertisedDataset(){
   clearDatasetCache('advertised');
   clearWorkbookCacheForOption(getWorkbookOption('advertised'));
   advertisedProductsPromise=null;
-  loadDatasetSelection('advertised').finally(()=>{
-    state.datasetRetrying=false;
+  loadDatasetSelection('advertised')
+    .then(()=>{
+      const placeholder=!!(state.datasetPlaceholders && state.datasetPlaceholders.advertised);
+      if(!placeholder){
+        setDatasetWarning('advertised', null);
+      }
+    })
+    .catch(err=>{
+      console.warn('Advertised dataset retry failed:', err);
+    })
+    .finally(()=>{
+      state.datasetRetrying=false;
+      refreshDatasetWarning();
+    });
+}
+
+function retrySearchDataset(){
+  if(state.datasetRetrying || state.datasetLoadingId==='search') return;
+  const placeholderActive=!!(state.datasetPlaceholders && state.datasetPlaceholders.search);
+  const cached=datasetStateCache.get('search');
+  if(cached && !placeholderActive){
+    setDatasetWarning('search', null);
     refreshDatasetWarning();
-  });
+    return;
+  }
+  state.datasetRetrying=true;
+  refreshDatasetWarning();
+  clearDatasetCache('search');
+  clearWorkbookCacheForOption(getWorkbookOption('search'));
+  loadDatasetSelection('search')
+    .then(()=>{
+      const placeholder=!!(state.datasetPlaceholders && state.datasetPlaceholders.search);
+      if(!placeholder){
+        setDatasetWarning('search', null);
+      }
+    })
+    .catch(err=>{
+      console.warn('Search dataset retry failed:', err);
+      applySearchDatasetFallback(SEARCH_FALLBACK_MESSAGE);
+    })
+    .finally(()=>{
+      state.datasetRetrying=false;
+      refreshDatasetWarning();
+    });
+}
+
+function handleDatasetRetry(){
+  const key=getActiveDatasetKey();
+  if(key==='advertised') retryAdvertisedDataset();
+  else if(key==='search') retrySearchDataset();
 }
 
 async function loadDatasetSelection(datasetId){
@@ -3112,6 +3201,7 @@ async function loadDatasetSelection(datasetId){
   let requestToken=null;
   let succeeded=false;
   let fallbackApplied=false;
+  let fallbackMessage='';
   let aborted=false;
   try{
     setHasData(false);
@@ -3125,12 +3215,27 @@ async function loadDatasetSelection(datasetId){
       aborted=true;
     }else if(option.id==='advertised' && (!result || result.token===datasetRequestToken)){
       fallbackApplied=await applyAdvertisedDatasetFallback();
+      if(fallbackApplied) fallbackMessage=ADVERTISED_FALLBACK_MESSAGE;
     }
   }catch(err){
     console.error('Failed to load workbook option:', err);
     if(option.id==='advertised'){
       fallbackApplied=await applyAdvertisedDatasetFallback();
-      if(!fallbackApplied){
+      if(fallbackApplied){
+        fallbackMessage=ADVERTISED_FALLBACK_MESSAGE;
+      }else{
+        showDatasetModalError('Failed to load workbook. Please try again.');
+        if(previousOption){
+          setActiveWorkbookOption(previousOption);
+        }else if(previousLabel){
+          setCustomWorkbookLabel(previousLabel);
+        }
+      }
+    }else if(option.id==='search'){
+      fallbackApplied=await applySearchDatasetFallback(SEARCH_FALLBACK_MESSAGE);
+      if(fallbackApplied){
+        fallbackMessage=SEARCH_FALLBACK_MESSAGE;
+      }else{
         showDatasetModalError('Failed to load workbook. Please try again.');
         if(previousOption){
           setActiveWorkbookOption(previousOption);
@@ -3161,6 +3266,7 @@ async function loadDatasetSelection(datasetId){
     if(option.id==='advertised'){
       clearAdvertisedFallbackState();
     }
+    setDatasetWarning(option.id, null);
     state.currentDataset=option.id;
     setActiveWorkbookOption(option.id);
     localStorage.setItem(DATASET_STORAGE_KEY, option.id);
@@ -3170,7 +3276,7 @@ async function loadDatasetSelection(datasetId){
   }
   if(fallbackApplied){
     closeDatasetModal(true);
-    showToast(ADVERTISED_FALLBACK_MESSAGE);
+    if(fallbackMessage) showToast(fallbackMessage);
     return;
   }
   if(option.id==='advertised' && !succeeded){
@@ -3365,7 +3471,7 @@ async function fetchWorkbookBuffer(file){
   throw new Error(`Workbook not available: ${file}`);
 }
 
-async function loadExcel(url, columnMap, datasetKey){
+async function loadExcel(url, columnMap, datasetKey, options={}){
   if(!url) throw new Error('Workbook path missing');
   const target=encodeURI(url);
   const requestId=++datasetRequestToken;
@@ -3375,8 +3481,10 @@ async function loadExcel(url, columnMap, datasetKey){
   await loadWorkbookBuffer(buffer,parseOptions);
   if(datasetRequestToken!==requestId) return {success:false, token:requestId};
   if(datasetKey){
+    if(state.datasetPlaceholders) state.datasetPlaceholders[datasetKey]=false;
     cacheDatasetState(datasetKey);
-    if(WORKBOOK_OPTION_MAP.has(datasetKey)){
+    const shouldPrime = options?.prime!==false;
+    if(shouldPrime && WORKBOOK_OPTION_MAP.has(datasetKey)){
       maybePrimeDatasets(datasetKey);
     }
   }
@@ -3712,7 +3820,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   updateDatasetDisplay();
   if(el.datasetWarning?.retry){
-    el.datasetWarning.retry.addEventListener('click', retryAdvertisedDataset);
+    el.datasetWarning.retry.addEventListener('click', handleDatasetRetry);
   }
   el.themeBtn.addEventListener('click',()=>{
     document.body.classList.toggle('light');
@@ -4130,24 +4238,7 @@ function boot(){
   showLoading(false,{force:true});
   el.tipPill.hidden=true;
   el.monthsWrap.hidden=true;
-
-  if(defaultWorkbookTimer){
-    clearTimeout(defaultWorkbookTimer);
-  }
-  defaultWorkbookTimer=setTimeout(()=>{
-    defaultWorkbookTimer=null;
-    if(!state.hasData) ensureDefaultWorkbook();
-  },1500);
-
-  attemptPreprocessedData()
-    .catch(err=>console.warn('Preprocessed data attempt failed:', err))
-    .finally(()=>{
-      if(defaultWorkbookTimer){
-        clearTimeout(defaultWorkbookTimer);
-        defaultWorkbookTimer=null;
-      }
-      if(!state.hasData) ensureDefaultWorkbook();
-    });
+  bootstrapInitialDatasets().catch(err=>console.error('Initial dataset bootstrap failed:', err));
 }
 function showLoading(on, options={}){
   const force=!!options.force;
@@ -4159,11 +4250,98 @@ function showLoading(on, options={}){
     loadingDepth-=1;
   }
   const active=loadingDepth>0;
+  if(globalLoadingLocked && !force){
+    if(!active && el.status){
+      el.status.classList.remove('show');
+      el.status.style.display='none';
+    }
+    if(!active) updateLoadingProgress();
+    return;
+  }
   if(el.status){
     el.status.classList.toggle('show', active);
     el.status.style.display=active?'':'none';
   }
   if(!active) updateLoadingProgress();
+}
+
+function lockGlobalSpinner(){
+  globalLoadingLocked=true;
+  loadingDepth=0;
+  if(el.status){
+    el.status.classList.remove('show');
+    el.status.style.display='none';
+  }
+  updateLoadingProgress();
+}
+
+async function loadDatasetForBootstrap(key, options={}){
+  if(!key) return false;
+  const option=getWorkbookOption(key);
+  if(!option) return false;
+  const columnMap=getDatasetColumnMap(option.id);
+  try{
+    const result=await loadExcel(option.file, columnMap, option.id, {prime:false});
+    if(!result?.success) return false;
+    if(options.setActive){
+      setActiveWorkbookOption(option.id);
+      localStorage.setItem(DATASET_STORAGE_KEY, option.id);
+    }
+    return true;
+  }catch(err){
+    console.warn(`Bootstrap load failed for ${key}:`, err);
+    return false;
+  }
+}
+
+async function bootstrapInitialDatasets(){
+  if(initialDatasetPromise) return initialDatasetPromise;
+  initialDatasetPromise=(async()=>{
+    showLoading(true,{force:true});
+    let searchLoaded=false;
+    try{
+      searchLoaded=await loadDatasetForBootstrap('search',{setActive:true});
+    }catch(err){
+      console.warn('Initial search dataset load failed:', err);
+    }
+    if(!searchLoaded){
+      await applySearchDatasetFallback(SEARCH_FALLBACK_MESSAGE);
+    }else{
+      setDatasetWarning('search', null);
+    }
+
+    let advertisedLoaded=false;
+    try{
+      advertisedLoaded=await loadDatasetForBootstrap('advertised',{setActive:false});
+    }catch(err){
+      console.warn('Initial advertised dataset load failed:', err);
+    }
+    if(!advertisedLoaded){
+      await applyAdvertisedDatasetFallback();
+    }else{
+      setDatasetWarning('advertised', null);
+    }
+
+    if(datasetStateCache.has('search')){
+      try{
+        await restoreDatasetState('search');
+      }catch(err){
+        console.warn('Failed to restore search dataset after bootstrap:', err);
+      }
+    }
+    setActiveWorkbookOption('search');
+    state.currentDataset='search';
+    localStorage.setItem(DATASET_STORAGE_KEY,'search');
+  })().catch(err=>{
+    console.error('Initial dataset bootstrap failed:', err);
+    if(!state.hasData){
+      applySearchDatasetFallback(SEARCH_FALLBACK_MESSAGE);
+    }
+  }).finally(()=>{
+    showLoading(false,{force:true});
+    lockGlobalSpinner();
+  });
+  return initialDatasetPromise;
 }
 
 function resetKpis(){ Object.values(el.kpi||{}).forEach(node=>{ if(node) node.textContent='—'; }); lastKpiSeries=null; updateKpiSparks(null); }
@@ -4181,7 +4359,10 @@ function setHasData(has, options={}){
   if(has && !silent){
     showLoading(false,{force:true});
   }
-  document.body.classList.toggle('has-data', !!has);
+  if(document.body){
+    document.body.classList.add('has-data');
+    document.body.classList.toggle('has-content', !!has);
+  }
   if(has){
     if(el.topLine) el.topLine.style.display='flex';
     if(el.kpis) el.kpis.hidden=false;
@@ -4197,14 +4378,14 @@ function setHasData(has, options={}){
     }
   }else{
     filterBackfillToken+=1;
-    if(el.topLine) el.topLine.style.display='none';
-    if(el.kpis) el.kpis.hidden=true;
-    if(el.pivot?.section) el.pivot.section.hidden=true;
-    if(el.openFiltersBtn) el.openFiltersBtn.style.display='none';
-    if(el.monthsWrap) el.monthsWrap.hidden=true;
-    if(el.tabs?.bar) el.tabs.bar.hidden=true;
-    if(el.tipPill) el.tipPill.hidden=false;
-    if(el.advertisedProducts?.card) el.advertisedProducts.card.hidden=true;
+    if(el.topLine) el.topLine.style.display='flex';
+    if(el.kpis) el.kpis.hidden=false;
+    if(el.pivot?.section) el.pivot.section.hidden=false;
+    if(el.openFiltersBtn) el.openFiltersBtn.style.display='inline-flex';
+    if(el.monthsWrap) el.monthsWrap.hidden=false;
+    if(el.tabs?.bar) el.tabs.bar.hidden=false;
+    if(el.tipPill) el.tipPill.hidden=true;
+    if(el.advertisedProducts?.card) el.advertisedProducts.card.hidden=false;
     if(state.advertisedProducts){
       state.advertisedProducts.renderToken=0;
       state.advertisedProducts.lastSlot=null;
