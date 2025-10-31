@@ -43,7 +43,10 @@ h1{margin:0;font-weight:800;letter-spacing:.2px}
 button{border:1px solid var(--border);background:var(--panel);color:var(--text);padding:10px 12px;border-radius:12px;cursor:pointer;transition:transform .12s, box-shadow .25s, background .2s, border-color .2s}
 button:hover{transform:translateY(-1px)}
 button:disabled{opacity:.5;cursor:not-allowed}
-#resetFilters{display:none}
+.filters-status{display:inline-flex;align-items:center;gap:10px;padding:8px 12px;border-radius:999px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--chip) 80%, var(--panel));box-shadow:var(--shadow);font-weight:600;color:var(--muted);}
+.filters-status[hidden]{display:none !important}
+.filters-status .filters-status__label{letter-spacing:.3px;text-transform:uppercase;font-size:11px;color:var(--muted);}
+.filters-status .btn-reset{display:inline-flex;font-weight:700;}
 .btn-filters,.btn-reset{display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border-radius:999px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--chip) 70%, var(--panel));color:var(--text);font-weight:700;box-shadow:var(--shadow);transition:transform .15s ease, box-shadow .25s ease, background .2s ease}
 .btn-filters:hover,.btn-reset:hover{background:color-mix(in srgb,var(--chip) 90%, var(--panel));box-shadow:0 12px 28px rgba(0,0,0,.28)}
 .btn-filters:focus-visible,.btn-reset:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
@@ -460,7 +463,10 @@ body.light .menuix-modal{background:color-mix(in srgb,var(--bg) 45%, rgba(15,23,
     </div>
   </div>
   <div class="actions">
-    <button id="resetFilters" class="btn-reset">Reset</button>
+    <div id="filtersStatus" class="filters-status" hidden>
+      <span class="filters-status__label">Filters applied</span>
+      <button id="resetFilters" class="btn-reset">Clear filters</button>
+    </div>
     <button id="openFilters" class="btn-filters" style="display:none">Filters</button>
     <button id="pickLocalBtn" class="btn-primary btn-success">Open XLSX</button>
     <input id="fileInput" type="file" accept=".xlsx,.xls" hidden />
@@ -2004,6 +2010,144 @@ const fmt={
   num0:n=>isFinite(n)?new Intl.NumberFormat(undefined,{maximumFractionDigits:0,minimumFractionDigits:0}).format(n):"—"
 };
 const MONTH_NAMES=["January","February","March","April","May","June","July","August","September","October","November","December"];
+const KPI_HEADER_VARIANTS={
+  spend:['spend','cost','adspend','ad spend','advertisingcost','advertising cost','adcost','totalspend','total spend'],
+  revenue:['sales','revenue','totalsales','total sales','orderedrevenue','attributedsales','totalrevenue','revenue7day','7daytotalsales'],
+  clicks:['clicks','totalclicks'],
+  impressions:['impressions','impr','impressions7day'],
+  acos:['acos','totaladvertisingcostofsales','totalacos','acos%','advertisingcostofsales'],
+  roas:['roas','returnonadvertisingspend','totalroas','roas%']
+};
+const KPI_HEADER_LABELS={
+  spend:'Spend',
+  revenue:'Sales',
+  clicks:'Clicks',
+  impressions:'Impressions',
+  acos:'ACOS',
+  roas:'ROAS'
+};
+const KPI_HEADER_ALIAS_MAP=new Map();
+Object.entries(KPI_HEADER_VARIANTS).forEach(([canonical, variants])=>{
+  variants.forEach(variant=>{
+    const key=sanitizeHeaderKey(variant);
+    if(key && !KPI_HEADER_ALIAS_MAP.has(key)){
+      KPI_HEADER_ALIAS_MAP.set(key, canonical);
+    }
+  });
+});
+const SHEET_META_CACHE=new WeakMap();
+function isDebugEnabled(){
+  if(typeof window==='undefined') return false;
+  if(window.REPORTS_DEBUG!=null) return !!window.REPORTS_DEBUG;
+  try{
+    return window.localStorage?.getItem('reports:debug')==='1';
+  }catch(_){
+    return false;
+  }
+}
+function debugLog(label, payload){
+  if(!isDebugEnabled()) return;
+  if(payload===undefined){
+    console.log('[Reports]', label);
+  }else{
+    console.log('[Reports]', label, payload);
+  }
+}
+function cleanHeaderValue(value){
+  return String(value??'').replace(/^[\uFEFF\s]+/, '').trim();
+}
+function rowHasMeaningfulData(row){
+  if(!Array.isArray(row)) return false;
+  for(const cell of row){
+    if(cell==null) continue;
+    if(typeof cell==='number'){
+      if(!Number.isNaN(cell)) return true;
+      continue;
+    }
+    if(typeof cell==='boolean') return true;
+    const text=cleanHeaderValue(cell);
+    if(text && !/^[-–—]+$/.test(text)) return true;
+  }
+  return false;
+}
+function trimSheetData(rows, headerRowIndex){
+  if(!Array.isArray(rows)) return [];
+  let end=rows.length;
+  const minIndex=Math.max(0,(Number.isInteger(headerRowIndex)?headerRowIndex:0)+1);
+  while(end>minIndex && !rowHasMeaningfulData(rows[end-1])){
+    end--;
+  }
+  return rows.slice(0,end);
+}
+function getCanonicalHeaderInfo(header){
+  const key=sanitizeHeaderKey(header);
+  if(!key) return null;
+  const canonical=KPI_HEADER_ALIAS_MAP.get(key);
+  if(!canonical) return null;
+  return {canonical,label:KPI_HEADER_LABELS[canonical]||cleanHeaderValue(header)||canonical};
+}
+function getSheetMetaMap(wb){
+  if(!wb) return new Map();
+  if(SHEET_META_CACHE.has(wb)) return SHEET_META_CACHE.get(wb);
+  const map=new Map();
+  const sheetDefs=wb?.Workbook?.Sheets;
+  if(Array.isArray(sheetDefs)){
+    sheetDefs.forEach((sheet,idx)=>{
+      const name=sheet?.name || sheet?.Name || (Array.isArray(wb.SheetNames)?wb.SheetNames[idx]:null);
+      if(name) map.set(name, sheet||{});
+    });
+  }
+  SHEET_META_CACHE.set(wb,map);
+  return map;
+}
+function isSheetVisible(wb, name){
+  if(!name) return false;
+  const meta=getSheetMetaMap(wb).get(name);
+  if(!meta) return true;
+  const state=(meta.state ?? meta.State ?? '').toString().toLowerCase();
+  if(state){
+    if(state==='visible') return true;
+    if(state==='hidden' || state==='veryhidden') return false;
+  }
+  const hidden=meta.Hidden ?? meta.hidden;
+  if(hidden==null) return true;
+  if(typeof hidden==='number') return hidden===0;
+  if(typeof hidden==='string'){
+    const value=hidden.toLowerCase();
+    if(value==='visible') return true;
+    if(value==='hidden' || value==='veryhidden') return false;
+  }
+  return true;
+}
+function listUsableSheetNames(wb, headerRowIndex){
+  const names=Array.isArray(wb?.SheetNames)?wb.SheetNames:[];
+  if(!names.length) return [];
+  const usable=[];
+  names.forEach(name=>{
+    if(!name) return;
+    if(!isSheetVisible(wb,name)) return;
+    const ws=wb.Sheets?.[name];
+    if(!ws || !ws['!ref']) return;
+    const range=XLSX.utils.decode_range(ws['!ref']);
+    if(range.e.r < (Number.isInteger(headerRowIndex)?headerRowIndex:1)) return;
+    const sampleRange={
+      s:{r:range.s.r,c:range.s.c},
+      e:{r:Math.min(range.e.r,(Number.isInteger(headerRowIndex)?headerRowIndex:1)+1),c:range.e.c}
+    };
+    const sample=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null,dense:true,range:sampleRange});
+    if(!Array.isArray(sample) || sample.length<= (Number.isInteger(headerRowIndex)?headerRowIndex:1)) return;
+    const headerRow=sample[Number.isInteger(headerRowIndex)?headerRowIndex:1] || [];
+    const cleaned=headerRow.map(cleanHeaderValue);
+    if(!cleaned.some(val=>val)) return;
+    const score=['store','sales','spend','clicks','impressions'].reduce((acc,token)=>acc+(findIndexByTokens(cleaned,[token])>-1?1:0),0);
+    usable.push({name,score});
+  });
+  usable.sort((a,b)=>{
+    if(b.score!==a.score) return b.score-a.score;
+    return names.indexOf(a.name)-names.indexOf(b.name);
+  });
+  return usable.map(entry=>entry.name);
+}
 const normalize=s=>String(s||"").trim().toLowerCase().replace(/\s+/g," ");
 function normalizeAdvertisedKey(value){
   if(value==null) return '';
@@ -2021,7 +2165,55 @@ const parseDMY=(s)=>{ if(!s) return null; const m=String(s).match(/^(\d{2})[-/](
 const toInputDate=d=>!(d instanceof Date)?"":`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const parseInputDate=s=>{ if(!s) return null; const m=String(s).match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!m) return null; const d=new Date(+m[1], +m[2]-1, +m[3]); return isNaN(+d)?null:d; };
 const cloneDate=d=> (d instanceof Date) ? new Date(d.getTime()) : null;
-function parseNumber(v){ if(v==null || v==="") return 0; if(typeof v==='number' && isFinite(v)) return v; let s=String(v).trim(); if(/^\(.*\)$/.test(s)) s='-'+s.slice(1,-1); if(/%$/.test(s)){ const num=parseFloat(s.replace(/[%\s,]/g,'')); return isFinite(num)?num/100:0; } s=s.replace(/[$€£₹¥₩]/g,'').replace(/,/g,'').replace(/[^\d.\-]/g,'').trim(); const num=parseFloat(s); return isFinite(num)?num:0; }
+function parseNumber(value){
+  if(value==null || value==="") return 0;
+  if(typeof value==='number') return isFinite(value)?value:0;
+  let s=String(value).trim();
+  if(!s) return 0;
+  s=s.replace(/[\u2010-\u2015\u2212\uFE58\uFE63\uFF0D]/g,'-');
+  const hadPercent=/\%/.test(s);
+  s=s.replace(/%/g,'');
+  let negative=false;
+  if(/^\(.*\)$/.test(s)){
+    negative=true;
+    s=s.slice(1,-1);
+  }
+  s=s.replace(/[$€£₹¥₩₽₺₪₫₦₵₲₴₡₱฿₭₮₼₸₤₢]/g,'');
+  s=s.replace(/\s+/g,'');
+  if(/^(?:n\/a|na|--|—|-)$/i.test(s)) return 0;
+  const commaCount=(s.match(/,/g)||[]).length;
+  const dotCount=(s.match(/\./g)||[]).length;
+  if(commaCount && dotCount){
+    if(s.lastIndexOf(',')>s.lastIndexOf('.')){
+      s=s.replace(/\./g,'').replace(/,/g,'.');
+    }else{
+      s=s.replace(/,/g,'');
+    }
+  }else if(commaCount){
+    if(commaCount===1 && dotCount===0 && /,\d{1,2}$/.test(s)){
+      s=s.replace(',', '.');
+    }else{
+      s=s.replace(/,/g,'');
+    }
+  }else if(dotCount>1){
+    const parts=s.split('.');
+    const decimalPart=parts[parts.length-1];
+    const looksLikeThousands = decimalPart.length===3 && parts.slice(0,-1).every(part=>part.length<=3);
+    if(looksLikeThousands){
+      s=parts.join('');
+    }else{
+      const decimal=parts.pop();
+      s=parts.join('') + '.' + decimal;
+    }
+  }
+  s=s.replace(/[^0-9.\-]/g,'');
+  if(!s || s==='-' || s==='.'){ return 0; }
+  let num=parseFloat(s);
+  if(!isFinite(num)) return 0;
+  if(negative && num>0) num=-num;
+  if(hadPercent) num/=100;
+  return isFinite(num)?num:0;
+}
 function clampPanelRight(panel){ panel.style.left='0'; panel.style.right='auto'; const rect=panel.getBoundingClientRect(), vw=document.documentElement.clientWidth; if(rect.right>vw-10){ panel.style.left='auto'; panel.style.right='0'; }}
 
 function hideCustomRangePanel(){
@@ -2250,6 +2442,7 @@ const el={
   dlCsv:document.getElementById('downloadCsvBtn'),
   openFiltersBtn:document.getElementById('openFilters'),
   resetFiltersBtn:document.getElementById('resetFilters'),
+  filtersStatus:document.getElementById('filtersStatus'),
   modal:document.getElementById('filtersModal'),
   closeFiltersBtn:document.getElementById('closeFilters'),
   cancelFiltersBtn:document.getElementById('cancelFilters'),
@@ -2533,6 +2726,7 @@ const WORKBOOK_OPTIONS=[
 ];
 const WORKBOOK_OPTION_MAP=new Map(WORKBOOK_OPTIONS.map(opt=>[opt.id,opt]));
 const workbookBufferCache=new Map();
+const workbookBufferPending=new Map();
 const datasetStateCache=new Map();
 let datasetPreloadPromise=null;
 let datasetPreloadInProgress=false;
@@ -2546,6 +2740,7 @@ const ASIN_SKU_WORKBOOK='ASINwise SKU.xlsx';
 const ADVERTISED_PRODUCTS_WORKBOOK='Products Advertised Product.xlsx';
 const SEARCH_FALLBACK_MESSAGE='Failed to load workbook. Showing placeholders.';
 const ADVERTISED_FALLBACK_MESSAGE='Failed to load workbook. Showing placeholders.';
+const ADVERTISED_EMPTY_MESSAGE='No rows in Products Advertised Product.xlsx after parsing.';
 const ADVERTISED_FALLBACK_HEADERS=['Date','Store','LO','Impressions','Clicks','Sales','Spend','Category','Targeting Type','Targeting Sub Type','Portfolio Name','Campaign Name','Ad Group Name','Advertised ASIN','Advertised SKU'];
 let asinSkuPromise=null;
 let advertisedProductsPromise=null;
@@ -2708,7 +2903,10 @@ function clearDatasetCache(datasetKey){
 
 function clearWorkbookBufferCacheEntry(file){
   const key=getWorkbookCacheKey(file);
-  if(key) workbookBufferCache.delete(key);
+  if(key){
+    workbookBufferCache.delete(key);
+    workbookBufferPending.delete(key);
+  }
 }
 
 function clearWorkbookCacheForOption(option){
@@ -3340,6 +3538,20 @@ function showToast(message){
 function normalizeWorkbookPath(file){
   return String(file??'').trim().replace(/^\.\/+/, '');
 }
+function encodeWorkbookPath(file){
+  const normalized=normalizeWorkbookPath(file);
+  if(!normalized) return '';
+  try{
+    const decoded=decodeURIComponent(normalized);
+    return encodeURI(decoded);
+  }catch(_){
+    try{
+      return encodeURI(normalized);
+    }catch(_err){
+      return normalized;
+    }
+  }
+}
 
 function getWorkbookCacheKey(file){
   const normalized=normalizeWorkbookPath(file);
@@ -3385,7 +3597,8 @@ function cloneDeep(value){
 
 function getWorkbookCandidateUrls(file){
   const normalized=normalizeWorkbookPath(file);
-  if(!normalized) return [];
+  const encoded=encodeWorkbookPath(file);
+  if(!normalized && !encoded) return [];
   const urls=new Set();
   const isAbsolute=/^(?:[a-z]+:)?\/\//i.test(normalized);
   const isRootRelative=normalized.startsWith('/');
@@ -3405,35 +3618,42 @@ function getWorkbookCandidateUrls(file){
     }
   };
 
-  if(isAbsolute){
-    addUrl(normalized);
-    return Array.from(urls);
-  }
-
-  addUrl(normalized);
-  if(!isRootRelative){
-    addUrl(`./${normalized}`);
-  }
-
-  if(typeof window!=='undefined' && window.location){
-    const {origin, pathname}=window.location;
-    if(origin && pathname){
-      const dir=pathname.endsWith('/')?pathname:pathname.replace(/[^/]+$/, '');
-      if(dir){
-        addUrl(normalized, `${origin}${dir}`);
-      }
-      addUrl(normalized, `${origin}/`);
-    }
-  }
-
-  if(typeof document!=='undefined' && document.currentScript?.src){
+  const variants=new Set();
+  if(normalized) variants.add(normalized);
+  if(encoded) variants.add(encoded);
+  if(normalized){
     try{
-      const scriptUrl=new URL(document.currentScript.src, window?.location?.href||document.baseURI);
-      const scriptDir=scriptUrl.href.replace(/[^/]+$/, '');
-      addUrl(normalized, scriptDir);
+      const decoded=decodeURIComponent(normalized);
+      if(decoded) variants.add(decoded);
     }catch(_){/* ignore */}
   }
-
+  for(const variant of variants){
+    if(isAbsolute){
+      addUrl(variant);
+      continue;
+    }
+    addUrl(variant);
+    if(!isRootRelative){
+      addUrl(`./${variant}`);
+    }
+    if(typeof window!=='undefined' && window.location){
+      const {origin, pathname}=window.location;
+      if(origin && pathname){
+        const dir=pathname.endsWith('/')?pathname:pathname.replace(/[^/]+$/, '');
+        if(dir){
+          addUrl(variant, `${origin}${dir}`);
+        }
+        addUrl(variant, `${origin}/`);
+      }
+    }
+    if(typeof document!=='undefined' && document.currentScript?.src){
+      try{
+        const scriptUrl=new URL(document.currentScript.src, window?.location?.href||document.baseURI);
+        const scriptDir=scriptUrl.href.replace(/[^/]+$/, '');
+        addUrl(variant, scriptDir);
+      }catch(_){/* ignore */}
+    }
+  }
   return Array.from(urls);
 }
 
@@ -3447,33 +3667,57 @@ async function fetchWorkbookBuffer(file){
       return cached.slice(0);
     }
   }
-  let lastError=null;
-  for(const url of candidates){
+  if(cacheKey && workbookBufferPending.has(cacheKey)){
     try{
-      const response=await fetch(url,{cache:'no-store'});
-      if(!response.ok && response.status!==0){
-        lastError=new Error(`HTTP ${response.status}`);
-        continue;
-      }
-      const buf=await response.arrayBuffer();
-      if(buf && buf.byteLength){
-        if(cacheKey){
-          workbookBufferCache.set(cacheKey, buf.slice(0));
-        }
-        return buf;
-      }
-      lastError=new Error('Empty workbook response');
+      const pending=await workbookBufferPending.get(cacheKey);
+      return pending.slice(0);
     }catch(err){
-      lastError=err;
+      workbookBufferPending.delete(cacheKey);
+      throw err;
     }
   }
-  console.error('Workbook fetch failed for', file, 'attempts:', candidates, 'last error:', lastError);
-  throw new Error(`Workbook not available: ${file}`);
+  let lastError=null;
+  const fetchPromise=(async()=>{
+    for(const url of candidates){
+      try{
+        const response=await fetch(url,{cache:'no-store'});
+        if(!response.ok && response.status!==0){
+          lastError=new Error(`HTTP ${response.status}`);
+          continue;
+        }
+        const buf=await response.arrayBuffer();
+        if(buf && buf.byteLength){
+          if(cacheKey){
+            workbookBufferCache.set(cacheKey, buf.slice(0));
+          }
+          return buf;
+        }
+        lastError=new Error('Empty workbook response');
+      }catch(err){
+        lastError=err;
+      }
+    }
+    throw lastError||new Error(`Workbook not available: ${file}`);
+  })();
+  if(cacheKey){
+    workbookBufferPending.set(cacheKey, fetchPromise);
+  }
+  try{
+    const result=await fetchPromise;
+    return result.slice(0);
+  }catch(err){
+    console.error('Workbook fetch failed for', file, 'attempts:', candidates, 'last error:', err);
+    throw err instanceof Error ? err : new Error(String(err));
+  }finally{
+    if(cacheKey && workbookBufferPending.get(cacheKey)===fetchPromise){
+      workbookBufferPending.delete(cacheKey);
+    }
+  }
 }
 
 async function loadExcel(url, columnMap, datasetKey, options={}){
   if(!url) throw new Error('Workbook path missing');
-  const target=encodeURI(url);
+  const target=encodeWorkbookPath(url) || url;
   const requestId=++datasetRequestToken;
   const buffer=await fetchWorkbookBuffer(target);
   if(datasetRequestToken!==requestId) return {success:false, token:requestId};
@@ -3677,31 +3921,36 @@ async function loadAdvertisedProductsWorkbook(){
   if(!file) return [];
   let buf;
   try{
-    buf=await fetchWorkbookBuffer(file);
+    const target=encodeWorkbookPath(file) || file;
+    buf=await fetchWorkbookBuffer(target);
   }catch(err){
     throw new Error('Advertised product workbook not found');
   }
   const wb=XLSX.read(buf,{type:'array',cellDates:false,cellNF:false,cellText:false});
   if(!wb.SheetNames || !wb.SheetNames.length) return [];
-  const sheetName=wb.SheetNames[0];
+  const headerRowIndex=1;
+  const candidates=listUsableSheetNames(wb, headerRowIndex);
+  const visibleNames=Array.isArray(wb.SheetNames)?wb.SheetNames.filter(name=>isSheetVisible(wb,name)):[];
+  const sheetName=candidates.length?candidates[0]:visibleNames[0];
+  debugLog('Advertised workbook sheet selected', {sheet:sheetName||null});
   const ws=wb.Sheets[sheetName];
   if(!ws) return [];
-  const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
-  if(!Array.isArray(rows) || rows.length<=2) return [];
-  const sanitizeRow=row=>(row||[]).map(v=>String(v??'').trim());
-  const headers=sanitizeRow(rows[1]);
+  let rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+  rows=trimSheetData(rows, headerRowIndex);
+  if(!Array.isArray(rows) || rows.length<=headerRowIndex+1) return [];
+  const headers=(rows[headerRowIndex]||[]).map(cleanHeaderValue);
   const idxCampaign=findIndexByTokens(headers,['campaignname']);
   const idxAdGroup=findIndexByTokens(headers,['adgroupname']);
   const idxSku=findIndexByTokens(headers,['advertisedsku']);
   const idxAsin=findIndexByTokens(headers,['advertisedasin']);
   if((idxCampaign<0 && idxAdGroup<0) || (idxSku<0 && idxAsin<0)) return [];
   const data=[];
-  for(let i=2;i<rows.length;i++){
+  for(let i=headerRowIndex+1;i<rows.length;i++){
     const row=Array.isArray(rows[i])?rows[i]:[];
-    const campaign=idxCampaign>-1?String(row[idxCampaign]??'').trim():'';
-    const adGroup=idxAdGroup>-1?String(row[idxAdGroup]??'').trim():'';
-    const sku=idxSku>-1?String(row[idxSku]??'').trim():'';
-    const asin=idxAsin>-1?String(row[idxAsin]??'').trim():'';
+    const campaign=idxCampaign>-1?cleanHeaderValue(row[idxCampaign]??''):'';
+    const adGroup=idxAdGroup>-1?cleanHeaderValue(row[idxAdGroup]??''):'';
+    const sku=idxSku>-1?cleanHeaderValue(row[idxSku]??''):'';
+    const asin=idxAsin>-1?cleanHeaderValue(row[idxAsin]??''):'';
     if(!campaign && !adGroup) continue;
     if(!sku && !asin) continue;
     data.push({
@@ -4445,8 +4694,8 @@ const COLUMN_TOKEN_SETS={
   lo:['lo','lineofbusiness','lob','store','market'],
   impressions:['impressions','impr'],
   clicks:['clicks'],
-  revenue:['sales','revenue','totalsales','orderedrevenue','attributedsales'],
-  spend:['spend','adspend','cost','advertisingcost'],
+  revenue:['sales','revenue','totalsales','orderedrevenue','attributedsales','totalrevenue'],
+  spend:['spend','adspend','cost','advertisingcost','adcost','totalspend'],
   category:['category','producttype','cat'],
   ttype:['targetingtype','adtype','type'],
   tsub:['targetingsubtype','matchtype','subtype'],
@@ -4574,15 +4823,19 @@ async function parseExcel(buf, options={}){
   const wb = XLSX.read(buf, { type:'array', cellDates:true, cellNF:true, cellText:false });
   const sheetNames=Array.isArray(wb.SheetNames)?wb.SheetNames:[];
   if(!sheetNames.length) throw new Error('No usable sheet found');
+  const headerRowIndex=Number.isInteger(options?.headerRowIndex)?options.headerRowIndex:1;
+  const candidateNames=listUsableSheetNames(wb, headerRowIndex);
+  const visibleNames=sheetNames.filter(name=>isSheetVisible(wb,name));
   const explicitNames=[];
   if(typeof options.sheetName==='string'){
-    const resolved=resolveSheetName(sheetNames, options.sheetName);
+    const resolved=resolveSheetName(candidateNames.length?candidateNames:visibleNames, options.sheetName);
     if(resolved) explicitNames.push(resolved);
   }
   if(Number.isInteger(options.sheetIndex)){
-    const idx=clampSheetIndex(options.sheetIndex, sheetNames.length);
+    const baseList=candidateNames.length?candidateNames:visibleNames;
+    const idx=clampSheetIndex(options.sheetIndex, baseList.length);
     if(idx!=null){
-      const name=sheetNames[idx];
+      const name=baseList[idx];
       if(name) explicitNames.push(name);
     }
   }
@@ -4590,7 +4843,7 @@ async function parseExcel(buf, options={}){
     const activeIdx=getWorkbookActiveSheetIndex(wb);
     if(activeIdx!=null){
       const name=sheetNames[activeIdx];
-      if(name) explicitNames.push(name);
+      if(name && isSheetVisible(wb,name)) explicitNames.push(name);
     }
   }
   let targetSheet=null;
@@ -4601,43 +4854,19 @@ async function parseExcel(buf, options={}){
     }
   }
   if(!targetSheet){
-    let best=null,score=-1;
-    for(const name of sheetNames){
-      const ws=wb.Sheets[name];
-      if(!ws) continue;
-      const ref=ws['!ref'];
-      if(!ref) continue;
-      const range=XLSX.utils.decode_range(ref);
-      const sampleRange={
-        s:{r:range.s.r,c:range.s.c},
-        e:{r:Math.min(range.s.r+2, range.e.r), c:range.e.c}
-      };
-      const sample=XLSX.utils.sheet_to_json(ws,{
-        header:1,
-        raw:true,
-        defval:null,
-        dense:true,
-        range:sampleRange
-      });
-      if(!sample || sample.length<3) continue;
-      const headers=(sample[1]||[]).map(value=>String(value??'').trim());
-      const s=['store','sales','spend','clicks','impressions']
-        .map(t=>findIndexByTokens(headers,[t])>-1?1:0)
-        .reduce((a,b)=>a+b,0);
-      if(s>score){score=s;best=name;}
-    }
-    targetSheet=best;
+    targetSheet=candidateNames.length?candidateNames[0]:(visibleNames[0]||sheetNames[0]);
   }
   if(!targetSheet) throw new Error('No usable sheet found');
   const ws=wb.Sheets[targetSheet];
   if(!ws) throw new Error('No usable sheet found');
-  const sheetData=XLSX.utils.sheet_to_json(ws,{
+  debugLog('Workbook sheet selected', {dataset:options?.datasetKey||getActiveDatasetKey(), sheet:targetSheet});
+  let sheetData=XLSX.utils.sheet_to_json(ws,{
     header:1,
     raw:true,
     defval:null,
     dense:true
   });
-  const headerRowIndex=Number.isInteger(options?.headerRowIndex)?options.headerRowIndex:1;
+  sheetData=trimSheetData(sheetData, headerRowIndex);
   await buildStateFromSheetData(sheetData,{
     headerRowIndex,
     columnMap:options?.columnMap,
@@ -4649,12 +4878,14 @@ async function parseExcel(buf, options={}){
 async function buildStateFromSheetData(sheetData, options={}){
   const SQL = await (sqlReadyPromise || loadSqlLibrary());
   if(!SQL) throw new Error('Unable to initialize SQL engine');
-  if(!Array.isArray(sheetData) || sheetData.length<3) throw new Error('No usable sheet found');
   const headerRowIndex=Number.isInteger(options?.headerRowIndex)?options.headerRowIndex:1;
-  const headerRow=Array.isArray(sheetData[headerRowIndex])?sheetData[headerRowIndex]:[];
-  const headers=headerRow.map(h=>String(h??'').trim());
+  const normalizedData=trimSheetData(Array.isArray(sheetData)?sheetData:[], headerRowIndex);
+  if(!Array.isArray(normalizedData) || normalizedData.length<=headerRowIndex) throw new Error('No usable sheet found');
+  const headerRow=Array.isArray(normalizedData[headerRowIndex])?normalizedData[headerRowIndex]:[];
+  const headers=headerRow.map(cleanHeaderValue);
+  if(!headers.some(value=>value)) throw new Error('No usable sheet found');
   const datasetKey=options?.datasetKey || getActiveDatasetKey();
-  const dataRowsRaw=sheetData.slice(headerRowIndex+1);
+  const dataRowsRaw=normalizedData.slice(headerRowIndex+1);
   const totalRows=dataRowsRaw.length;
   const progressStep=computeProgressStep(totalRows);
   let processedRows=0;
@@ -4675,6 +4906,10 @@ async function buildStateFromSheetData(sheetData, options={}){
     const idx=Array.isArray(tokens) && tokens.length ? findIndexByTokens(headers,tokens) : -1;
     if(idx>-1) return idx;
     if(override && Number.isInteger(override.fallbackIndex)) return override.fallbackIndex;
+    for(let i=0;i<headers.length;i++){
+      const info=getCanonicalHeaderInfo(headers[i]);
+      if(info && info.canonical===key) return i;
+    }
     return -1;
   };
 
@@ -4699,20 +4934,34 @@ async function buildStateFromSheetData(sheetData, options={}){
     adgroup:resolveColumnIndex('adgroup'),
     portfolio:resolveColumnIndex('portfolio')
   };
-  const mapCols={}; for(const [k,idx] of Object.entries(cols)){ if(idx>-1) mapCols[k]={name:headers[idx],idx}; }
+  const mapCols={};
+  for(const [k,idx] of Object.entries(cols)){
+    if(idx>-1){
+      const headerValue=headers[idx]??'';
+      const canonicalInfo=getCanonicalHeaderInfo(headerValue);
+      const label=(canonicalInfo?canonicalInfo.label:headerValue)||`Column ${idx+1}`;
+      mapCols[k]={name:label,idx};
+    }
+  }
   if(mapCols.store && !mapCols.lo) mapCols.lo = {...mapCols.store, aliasOf:'store'}; // fallback
   const initialFilterKeys=computeDatasetInitialFilterKeys(mapCols, datasetKey, options?.initialFilterKeys);
   state.columns=mapCols;
   if(mapCols.targetingAsin) ensureAsinSkuMap();
   const numericIdx=new Set([mapCols.impressions?.idx,mapCols.clicks?.idx,mapCols.revenue?.idx,mapCols.spend?.idx].filter(idx=>Number.isInteger(idx)));
+  debugLog('Header map produced', {
+    dataset:datasetKey||'',
+    map:Object.fromEntries(Object.entries(mapCols).map(([key,value])=>[key, value?{name:value.name,index:value.idx}:null]))
+  });
   const usedNames=new Set();
   const columnInfo=headers.map((header,idx)=>{
-    const normalized=normalize(header);
+    const canonicalInfo=getCanonicalHeaderInfo(header);
+    const label=(canonicalInfo?canonicalInfo.label:header)||`Column ${idx+1}`;
+    const normalized=normalize(label);
     const fallback=`column_${idx+1}`;
     const sqlName=makeSqlColumnName(normalized,fallback,usedNames);
     const isDate=mapCols.date && idx===mapCols.date.idx;
     const type=isDate?'TEXT':(numericIdx.has(idx)?'REAL':'TEXT');
-    return {index:idx, header, normalized, sqlName, type, isDate};
+    return {index:idx, header:label, normalized, sqlName, type, isDate};
   });
   const columnMap=new Map();
   columnInfo.forEach(info=>{ const key=info.normalized||''; if(!columnMap.has(key)) columnMap.set(key,info); });
@@ -4783,6 +5032,15 @@ async function buildStateFromSheetData(sheetData, options={}){
   }
   if(transactionStarted){
     db.exec('COMMIT;');
+  }
+
+  debugLog('Row count after parsing', {dataset:datasetKey||'', rows:rowCount});
+  if(datasetKey==='advertised'){
+    if(rowCount===0){
+      setDatasetWarning('advertised', ADVERTISED_EMPTY_MESSAGE);
+    }else if(state.datasetWarnings?.advertised===ADVERTISED_EMPTY_MESSAGE){
+      setDatasetWarning('advertised', null);
+    }
   }
 
   state.sql={db, table:tableName, columns:columnInfo, columnMap, rowCount};
@@ -4914,8 +5172,18 @@ function hasActiveFilters(){
 }
 
 function updateResetButtonVisibility(){
-  if(!el.resetFiltersBtn) return;
-  el.resetFiltersBtn.style.display = hasActiveFilters() ? 'inline-flex' : 'none';
+  const active=hasActiveFilters();
+  const btn=el.resetFiltersBtn;
+  const statusWrap=el.filtersStatus;
+  if(statusWrap){
+    statusWrap.hidden=!active;
+  }
+  if(btn){
+    if(!statusWrap){
+      btn.style.display=active?'inline-flex':'none';
+    }
+    btn.disabled=!active;
+  }
 }
 
 
@@ -6588,7 +6856,15 @@ function updateAdvertisedProductsDisplay(){
 function renderAll(){
   const context=buildFilterContext(null);
   const series=buildKpiSeries(context);
-  renderKPIs(computeKPIs(context), series);
+  const debugTotalsEnabled=isDebugEnabled() && getActiveDatasetKey()==='advertised';
+  if(debugTotalsEnabled){
+    debugLog('Advertised totals (before filters)', computeKPIs({conditions:[]}));
+  }
+  const totals=computeKPIs(context);
+  if(debugTotalsEnabled){
+    debugLog('Advertised totals (after filters)', totals);
+  }
+  renderKPIs(totals, series);
 
   const spendInfo=getSqlInfoForStateKey('spend');
   const salesInfo=getSqlInfoForStateKey('revenue');
