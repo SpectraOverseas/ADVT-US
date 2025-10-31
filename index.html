@@ -2537,6 +2537,10 @@ const WORKBOOK_OPTIONS=[
   }
 ];
 const WORKBOOK_OPTION_MAP=new Map(WORKBOOK_OPTIONS.map(opt=>[opt.id,opt]));
+const workbookBufferCache=new Map();
+const datasetStateCache=new Map();
+let datasetPreloadPromise=null;
+let datasetPreloadInProgress=false;
 const DEFAULT_PREPROCESSED_DATA=[
   'preprocessed/search_terms.json'
 ];
@@ -2574,6 +2578,186 @@ function getDatasetColumnMap(id){
   if(!id) return null;
   const map=DATASET_COLUMN_MAPS[id];
   return map||null;
+}
+
+function cacheDatasetState(datasetKey){
+  const key=datasetKey||getActiveDatasetKey();
+  if(!key) return;
+  try{
+    snapshotFilters();
+  }catch(_){/* ignore snapshot failures */}
+  const columnMapEntries=state.sql?.columnMap instanceof Map
+    ? Array.from(state.sql.columnMap.entries(), ([k,v])=>[k, cloneDeep(v)])
+    : [];
+  let dbExport=null;
+  if(state.sql?.db && typeof state.sql.db.export==='function'){
+    try{
+      const exported=state.sql.db.export();
+      dbExport=exported ? exported.slice(0) : null;
+    }catch(_){ dbExport=null; }
+  }
+  const asinSkuEntries=state.asinSkuMap instanceof Map
+    ? Array.from(state.asinSkuMap.entries(), ([asin,list])=>[asin, cloneDeep(list)])
+    : [];
+  const asinValueEntries=state.asinValueMap instanceof Map
+    ? Array.from(state.asinValueMap.entries())
+    : [];
+  const snapshot={
+    columns:cloneDeep(state.columns),
+    rows:cloneDeep(state.rows),
+    monthSel:Array.from(state.monthSel||[]),
+    monthOptions:cloneDeep(state.monthOptions),
+    monthDirty:state.monthDirty,
+    monthTab:state.monthTab,
+    filterSnapshot:cloneDeep(state.snapshot||{}),
+    customRange:cloneDeep(state.customRange),
+    dateBounds:cloneDeep(state.dateBounds),
+    advertisedProducts:cloneDeep(state.advertisedProducts),
+    conversionPage:cloneDeep(state.conversionPage),
+    lastTabIndex:state.lastTabIndex,
+    pivotFilters:cloneDeep(state.pivotFilters),
+    activeTab:state.activeTab,
+    asinSkuLoaded:state.asinSkuLoaded,
+    asinSkuEntries,
+    asinValueEntries,
+    hasData:!!state.hasData,
+    sql:{
+      table:state.sql?.table||'',
+      columns:cloneDeep(state.sql?.columns||[]),
+      rowCount:state.sql?.rowCount||0,
+      columnMapEntries,
+      dbExport
+    },
+    datasetWarning:state.datasetWarnings?.[key]??null
+  };
+  datasetStateCache.set(key, snapshot);
+}
+
+async function restoreDatasetState(datasetKey){
+  const key=datasetKey||getActiveDatasetKey();
+  if(!key) return false;
+  const cached=datasetStateCache.get(key);
+  if(!cached) return false;
+  const SQL=await (sqlReadyPromise || loadSqlLibrary());
+  if(!SQL) throw new Error('Unable to initialize SQL engine');
+  setHasData(false,{silent:true});
+  if(state.sql?.db){
+    try{ state.sql.db.close(); }catch(_){ }
+  }
+  const columnMapEntries=Array.isArray(cached.sql?.columnMapEntries)?cached.sql.columnMapEntries:[];
+  const dbExport=cached.sql?.dbExport;
+  const db=dbExport?new SQL.Database(dbExport):null;
+  state.sql={
+    db,
+    table:cached.sql?.table||'',
+    columns:cloneDeep(cached.sql?.columns||[]),
+    columnMap:new Map(columnMapEntries.map(([k,v])=>[k, cloneDeep(v)])),
+    rowCount:cached.sql?.rowCount||0
+  };
+  state.columns=cloneDeep(cached.columns)||{};
+  state.rows=cloneDeep(cached.rows)||[];
+  state.monthSel=new Set(Array.isArray(cached.monthSel)?cached.monthSel:[]);
+  state.monthOptions=cloneDeep(cached.monthOptions)||[];
+  state.monthDirty=!!cached.monthDirty;
+  state.monthTab=cached.monthTab||'months';
+  state.customRange=cloneDeep(cached.customRange)||{start:null,end:null,active:false};
+  state.dateBounds=cloneDeep(cached.dateBounds)||{min:null,max:null};
+  state.advertisedProducts=cloneDeep(cached.advertisedProducts)||{rows:[],loaded:false,renderToken:0,lastSlot:null,placeholder:false,placeholderMessage:'',loadError:false};
+  state.conversionPage=cloneDeep(cached.conversionPage)||{st:0,asin:0};
+  state.lastTabIndex=Number.isFinite(cached.lastTabIndex)?cached.lastTabIndex:0;
+  state.pivotFilters=cloneDeep(cached.pivotFilters)||{};
+  state.activeTab=cached.activeTab||'overview';
+  state.asinSkuLoaded=!!cached.asinSkuLoaded;
+  state.asinSkuMap=new Map(Array.isArray(cached.asinSkuEntries)?cached.asinSkuEntries.map(([asin,list])=>[asin, cloneDeep(list)]):[]);
+  state.asinValueMap=new Map(Array.isArray(cached.asinValueEntries)?cached.asinValueEntries:[]);
+  state.snapshot=cloneDeep(cached.filterSnapshot)||{};
+  state.hasData=true;
+  state.currentDataset=key;
+  state.activeWorkbookOption=key;
+  state.customWorkbookLabel='';
+  if(!state.datasetWarnings) state.datasetWarnings={};
+  state.datasetWarnings[key]=cached.datasetWarning??null;
+  syncDatasetFormSelection();
+  updateDatasetDisplay();
+  updateTabsUI();
+  updateDatasetModalNotice();
+  syncFilterLabels();
+  buildMonths();
+  const {token, remainingKeys}=initFilters();
+  restoreSnapshot();
+  updateAllFilterOptions(null);
+  updateResetButtonVisibility();
+  updateMonthTabs();
+  updateMonthSummary();
+  renderAll();
+  if(Array.isArray(remainingKeys) && remainingKeys.length){
+    scheduleDeferredFilterBuild(remainingKeys, token);
+  }
+  if(key==='advertised'){
+    ensureAdvertisedProductsData().catch(()=>{});
+  }
+  setHasData(true);
+  return true;
+}
+
+function clearDatasetCache(datasetKey){
+  if(!datasetKey) return;
+  datasetStateCache.delete(datasetKey);
+}
+
+function clearWorkbookBufferCacheEntry(file){
+  const key=getWorkbookCacheKey(file);
+  if(key) workbookBufferCache.delete(key);
+}
+
+function clearWorkbookCacheForOption(option){
+  if(!option) return;
+  clearWorkbookBufferCacheEntry(option.file);
+  if(Array.isArray(option.aliases)){
+    option.aliases.forEach(alias=>clearWorkbookBufferCacheEntry(alias));
+  }
+}
+
+async function primeDatasetCaches(currentKey){
+  if(datasetPreloadInProgress) return;
+  const targets=WORKBOOK_OPTIONS.map(opt=>opt.id).filter(id=>id && !datasetStateCache.has(id));
+  if(!targets.length) return;
+  const previousKey=(currentKey && datasetStateCache.has(currentKey))?currentKey:getActiveDatasetKey();
+  if(previousKey && !datasetStateCache.has(previousKey) && state.hasData){
+    cacheDatasetState(previousKey);
+  }
+  datasetPreloadInProgress=true;
+  const body=document.body;
+  const prevVisibility=body?body.style.visibility:'';
+  if(body) body.style.visibility='hidden';
+  try{
+    for(const id of targets){
+      if(id===previousKey || datasetStateCache.has(id)) continue;
+      const option=getWorkbookOption(id);
+      if(!option) continue;
+      try{
+        await loadExcel(option.file, getDatasetColumnMap(id), id);
+      }catch(err){
+        console.warn('Dataset preload failed:', id, err);
+      }
+    }
+  }finally{
+    if(body) body.style.visibility=prevVisibility;
+    datasetPreloadInProgress=false;
+    if(previousKey && datasetStateCache.has(previousKey)){
+      try{ await restoreDatasetState(previousKey); }
+      catch(err){ console.warn('Failed to restore dataset after preload:', err); }
+    }
+  }
+}
+
+function maybePrimeDatasets(currentKey){
+  if(datasetPreloadPromise || datasetPreloadInProgress) return;
+  const pending=WORKBOOK_OPTIONS.filter(opt=>opt.id && opt.id!==currentKey && !datasetStateCache.has(opt.id));
+  if(!pending.length) return;
+  datasetPreloadPromise=primeDatasetCaches(currentKey)
+    .catch(err=>console.warn('Dataset preload error:', err))
+    .finally(()=>{ datasetPreloadPromise=null; });
 }
 
 function updateDatasetDisplay(){
@@ -2835,6 +3019,7 @@ async function applyAdvertisedDatasetFallback(){
     }
     setHasData(true);
     renderAll();
+    cacheDatasetState('advertised');
     advertisedProductsPromise=null;
     setDatasetWarning('advertised', ADVERTISED_FALLBACK_MESSAGE);
     updateDataActionsAvailability();
@@ -2869,6 +3054,8 @@ function retryAdvertisedDataset(){
     state.advertisedProducts.rows=[];
     state.advertisedProducts.loadError=false;
   }
+  clearDatasetCache('advertised');
+  clearWorkbookCacheForOption(getWorkbookOption('advertised'));
   advertisedProductsPromise=null;
   loadDatasetSelection('advertised').finally(()=>{
     state.datasetRetrying=false;
@@ -2894,6 +3081,34 @@ async function loadDatasetSelection(datasetId){
   refreshDatasetWarning();
   const previousOption=state.activeWorkbookOption;
   const previousLabel=state.customWorkbookLabel;
+  const previousKey=getActiveDatasetKey();
+  if(state.hasData){
+    cacheDatasetState(previousKey);
+  }
+
+  let restored=false;
+  if(datasetStateCache.has(option.id)){
+    try{
+      showLoading(true);
+      restored=await restoreDatasetState(option.id);
+    }catch(err){
+      console.warn('Failed to restore cached dataset:', err);
+    }finally{
+      showLoading(false);
+    }
+    if(restored){
+      setDatasetModalLoading(false);
+      state.datasetLoadingId=null;
+      refreshDatasetWarning();
+      state.currentDataset=option.id;
+      setActiveWorkbookOption(option.id);
+      localStorage.setItem(DATASET_STORAGE_KEY, option.id);
+      closeDatasetModal(true);
+      showToast(`Loaded: ${option.label}`);
+      return;
+    }
+  }
+
   let requestToken=null;
   let succeeded=false;
   let fallbackApplied=false;
@@ -3020,6 +3235,48 @@ function normalizeWorkbookPath(file){
   return String(file??'').trim().replace(/^\.\/+/, '');
 }
 
+function getWorkbookCacheKey(file){
+  const normalized=normalizeWorkbookPath(file);
+  if(!normalized) return null;
+  let key=normalized;
+  try{
+    const decoded=decodeURIComponent(normalized);
+    if(decoded) key=decoded;
+  }catch(_){/* ignore decode issues */}
+  return key.trim().toLowerCase();
+}
+
+function cloneDeep(value){
+  if(typeof structuredClone==='function'){
+    try{ return structuredClone(value); }
+    catch(_){/* fall through */}
+  }
+  if(value instanceof Map){
+    return new Map(Array.from(value.entries(), entry=>[entry[0], cloneDeep(entry[1])]));
+  }
+  if(value instanceof Set){
+    return new Set(Array.from(value.values(), cloneDeep));
+  }
+  if(value instanceof Date){
+    return new Date(value.getTime());
+  }
+  if(value instanceof Uint8Array){
+    return value.slice(0);
+  }
+  if(value instanceof ArrayBuffer){
+    return value.slice(0);
+  }
+  if(Array.isArray(value)){
+    return value.map(item=>cloneDeep(item));
+  }
+  if(value && typeof value==='object'){
+    const out={};
+    Object.keys(value).forEach(key=>{ out[key]=cloneDeep(value[key]); });
+    return out;
+  }
+  return value;
+}
+
 function getWorkbookCandidateUrls(file){
   const normalized=normalizeWorkbookPath(file);
   if(!normalized) return [];
@@ -3077,6 +3334,13 @@ function getWorkbookCandidateUrls(file){
 async function fetchWorkbookBuffer(file){
   const candidates=getWorkbookCandidateUrls(file);
   if(!candidates.length) throw new Error('Workbook path missing');
+  const cacheKey=getWorkbookCacheKey(file);
+  if(cacheKey && workbookBufferCache.has(cacheKey)){
+    const cached=workbookBufferCache.get(cacheKey);
+    if(cached){
+      return cached.slice(0);
+    }
+  }
   let lastError=null;
   for(const url of candidates){
     try{
@@ -3087,6 +3351,9 @@ async function fetchWorkbookBuffer(file){
       }
       const buf=await response.arrayBuffer();
       if(buf && buf.byteLength){
+        if(cacheKey){
+          workbookBufferCache.set(cacheKey, buf.slice(0));
+        }
         return buf;
       }
       lastError=new Error('Empty workbook response');
@@ -3107,6 +3374,12 @@ async function loadExcel(url, columnMap, datasetKey){
   const parseOptions={...getDatasetParseOptions(datasetKey), columnMap, datasetKey};
   await loadWorkbookBuffer(buffer,parseOptions);
   if(datasetRequestToken!==requestId) return {success:false, token:requestId};
+  if(datasetKey){
+    cacheDatasetState(datasetKey);
+    if(WORKBOOK_OPTION_MAP.has(datasetKey)){
+      maybePrimeDatasets(datasetKey);
+    }
+  }
   return {success:true, token:requestId};
 }
 
@@ -3902,9 +4175,10 @@ function updateDataActionsAvailability(){
   el.dlCsv.disabled=!enabled;
 }
 
-function setHasData(has){
+function setHasData(has, options={}){
+  const silent=options?.silent===true;
   state.hasData=!!has;
-  if(has){
+  if(has && !silent){
     showLoading(false,{force:true});
   }
   document.body.classList.toggle('has-data', !!has);
@@ -4061,6 +4335,8 @@ async function attemptPreprocessedData(){
         setHasData(true);
         setActiveWorkbookOption('search');
         localStorage.setItem(DATASET_STORAGE_KEY,'search');
+        cacheDatasetState('search');
+        maybePrimeDatasets('search');
         return;
       }catch(err){
         console.warn(`Failed to load preprocessed data from ${file}:`, err);
