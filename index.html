@@ -57,16 +57,21 @@ button:disabled{opacity:.5;cursor:not-allowed}
 /* Header */
 .app-header{display:grid;grid-template-columns:auto minmax(260px,1fr) auto;align-items:center;gap:clamp(12px,2vw,24px);padding:12px clamp(14px,3vw,28px);border-bottom:1px solid var(--border);background:var(--header-grad);position:sticky;top:0;backdrop-filter:blur(6px);z-index:20}
 .header-title{display:flex;align-items:center;gap:10px;min-width:0}
-.menu-toggle{display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;border-radius:12px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--panel) 85%, var(--chip));box-shadow:var(--shadow);color:var(--text);transition:transform .2s ease, box-shadow .25s ease, background .2s ease;cursor:pointer}
-.menu-toggle:hover{transform:translateY(-1px);box-shadow:0 12px 28px rgba(0,0,0,.28);background:color-mix(in srgb,var(--chip) 90%, var(--panel))}
-.menu-toggle:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
-.menu-toggle.is-active{background:color-mix(in srgb,var(--accent) 16%, var(--panel));color:var(--accent);box-shadow:0 14px 28px rgba(37,99,235,.24)}
-.menu-icon{width:22px;height:18px;display:flex;flex-direction:column;justify-content:space-between;position:relative}
-.menu-icon span{display:block;height:2px;background:currentColor;border-radius:1px;transition:transform .3s cubic-bezier(.4,0,.2,1),opacity .3s cubic-bezier(.4,0,.2,1)}
-.menu-toggle.is-active .menu-icon span:nth-child(1){transform:translateY(8px) rotate(45deg)}
-.menu-toggle.is-active .menu-icon span:nth-child(2){opacity:0}
-.menu-toggle.is-active .menu-icon span:nth-child(3){transform:translateY(-8px) rotate(-45deg)}
 .menu-control{display:inline-flex;align-items:center;gap:10px;position:relative}
+.menuix-toggle{position:relative;display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;padding:0;border:0;border-radius:999px;background:transparent;color:var(--text);cursor:pointer;box-shadow:none;transition:color .2s ease,background-color .25s ease,box-shadow .25s ease,transform .25s ease}
+.menuix-toggle:focus{outline:none}
+.menuix-toggle:focus-visible{box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 45%, transparent)}
+.menuix-toggle:hover{background:color-mix(in srgb,var(--chip) 42%, transparent);transform:none}
+.menuix-toggle:active{transform:scale(.96);background:color-mix(in srgb,var(--chip) 58%, transparent)}
+.menuix-toggle[aria-expanded="true"]{color:var(--accent)}
+.menuix-icon{width:22px;height:18px;display:flex;flex-direction:column;justify-content:space-between;position:relative}
+.menuix-icon span{display:block;height:2px;border-radius:999px;background:currentColor;transition:transform .32s cubic-bezier(.4,0,.2,1),opacity .24s cubic-bezier(.4,0,.2,1)}
+.menuix-toggle[aria-expanded="true"] .menuix-icon span:nth-child(1){transform:translateY(8px) rotate(45deg)}
+.menuix-toggle[aria-expanded="true"] .menuix-icon span:nth-child(2){opacity:0}
+.menuix-toggle[aria-expanded="true"] .menuix-icon span:nth-child(3){transform:translateY(-8px) rotate(-45deg)}
+@media (prefers-reduced-motion: reduce){
+  .menuix-toggle,.menuix-icon span{transition:none !important}
+}
 .header-title-icon{font-size:1.4em;line-height:1}
 #headerTitle{display:flex;align-items:center;gap:8px;min-width:0}
 #headerTitleText{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -109,6 +114,22 @@ body.light .dataset-modal{background:rgba(15,23,42,.32)}
 .dataset-modal__error.show{display:block}
 .dataset-modal__actions{display:flex;gap:12px;justify-content:flex-end}
 .dataset-modal__actions button{min-width:96px}
+.menuix-modal{padding:clamp(18px,4vw,64px);background:color-mix(in srgb,var(--bg) 55%, rgba(15,18,22,.65));backdrop-filter:blur(14px);}
+body.light .menuix-modal{background:color-mix(in srgb,var(--bg) 45%, rgba(15,23,42,.35));}
+.menuix-modal .dataset-modal__dialog{width:min(520px,100%);max-width:520px;border-radius:26px;padding:clamp(26px,4vw,40px);box-shadow:0 28px 60px rgba(15,23,42,.45);transform:translateY(18px) scale(.98);opacity:0;transition:transform .32s cubic-bezier(.4,0,.2,1),opacity .32s cubic-bezier(.4,0,.2,1);}
+.menuix-modal.open .dataset-modal__dialog{transform:translateY(0) scale(1);opacity:1;}
+.menuix-modal .dataset-modal__title{text-align:center;font-size:1.6rem;letter-spacing:-.01em;}
+.menuix-modal .dataset-modal__options{gap:14px;}
+.menuix-modal .dataset-option{border-radius:16px;padding:16px 18px;box-shadow:none;border:1px solid color-mix(in srgb,var(--border) 85%, transparent);background:color-mix(in srgb,var(--panel) 88%, var(--chip));transition:border-color .25s ease,box-shadow .25s ease,background .25s ease,transform .18s ease;}
+.menuix-modal .dataset-option:hover{transform:translateY(-2px);box-shadow:0 16px 32px rgba(15,23,42,.28);background:color-mix(in srgb,var(--panel) 94%, var(--chip));}
+.menuix-modal .dataset-option.is-active{border-color:color-mix(in srgb,var(--accent) 48%, var(--border));box-shadow:0 18px 36px rgba(37,99,235,.26);background:color-mix(in srgb,var(--accent) 18%, var(--panel));}
+.menuix-modal .dataset-option input[type=radio]{border:2px solid color-mix(in srgb,var(--muted) 70%, var(--border));background:var(--panel);}
+.menuix-modal .dataset-option input[type=radio]:checked{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 16%, transparent);}
+.menuix-modal .dataset-modal__footer{margin-top:8px;padding-top:12px;border-top:1px solid color-mix(in srgb,var(--border) 75%, transparent);}
+@media (prefers-reduced-motion: reduce){
+  .menuix-modal{transition:none !important}
+  .menuix-modal .dataset-modal__dialog{transition:none !important;transform:none !important}
+}
 .toast{position:fixed;left:50%;bottom:24px;transform:translate(-50%,20px);padding:12px 20px;border-radius:999px;background:var(--panel);color:var(--text);font-weight:600;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .22s ease, transform .22s ease;z-index:170}
 .toast.show{opacity:1;transform:translate(-50%,0)}
 .actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:flex-end}
@@ -416,14 +437,14 @@ body.has-data #tipPill{display:none !important}
 <header id="appHeader" class="app-header">
   <div class="header-title">
     <div class="menu-control">
-      <div class="menu-toggle" id="menuToggle" role="button" tabindex="0" aria-label="Choose report data" aria-haspopup="dialog" aria-controls="datasetModal" aria-expanded="false">
-        <span class="menu-icon" aria-hidden="true">
+      <button type="button" class="menuix-toggle" id="menuToggle" aria-label="Choose report data" aria-haspopup="dialog" aria-controls="datasetModal" aria-expanded="false">
+        <span class="menuix-icon" aria-hidden="true">
           <span></span>
           <span></span>
           <span></span>
         </span>
         <span class="sr-only">Toggle data menu</span>
-      </div>
+      </button>
     </div>
     <h1 id="headerTitle">
       <span id="headerTitleIcon" class="header-title-icon" aria-hidden="true">🔎</span>
@@ -503,8 +524,8 @@ body.has-data #tipPill{display:none !important}
     </div>
   </section>
 
-  <div id="datasetModal" class="dataset-modal" role="dialog" aria-modal="true" aria-labelledby="datasetModalTitle" hidden>
-    <div class="dataset-modal__dialog" role="document">
+  <div id="datasetModal" class="dataset-modal menuix-modal" role="dialog" aria-modal="true" aria-labelledby="datasetModalTitle" hidden>
+    <div class="dataset-modal__dialog menuix-modal__dialog" role="document">
       <h2 id="datasetModalTitle" class="dataset-modal__title">Choose Report Data</h2>
       <form id="datasetForm" class="dataset-modal__form">
         <div class="dataset-modal__options" role="radiogroup" aria-labelledby="datasetModalTitle">
