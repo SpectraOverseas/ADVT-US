@@ -3547,7 +3547,7 @@ function showToast(message){
         node.textContent='';
       }
     },220);
-  },2400);
+  },3200);
 }
 
 function normalizeWorkbookPath(file){
@@ -6809,14 +6809,18 @@ function setAdvertisedProductsView(status, rows){
   }
 }
 
-function announceAdvertisedProductsLoaded(rowCount){
+function announceAdvertisedProductsLoaded(rowCount, renderToken){
   if(getActiveDatasetKey()!=='advertised') return;
   const tracker=state.advertisedProducts;
   if(!tracker) return;
+  if(Number.isFinite(renderToken) && tracker.renderToken!==renderToken){
+    return;
+  }
   const count=Number.isFinite(rowCount)?rowCount:0;
   const totals=computeKPIs(buildFilterContext(null));
   const spend=Number.isFinite(totals?.S)?totals.S:0;
-  const signature=`${count}|${spend.toFixed(2)}`;
+  const keyToken=Number.isFinite(renderToken)?renderToken:tracker.renderToken||0;
+  const signature=`${keyToken}|${count}|${spend.toFixed(2)}`;
   if(tracker.toastKey===signature){
     return;
   }
@@ -6845,27 +6849,23 @@ function updateAdvertisedProductsDisplay(){
   const adgroupValues=adgroupRoot?ddGetSelected(adgroupRoot):[];
   const hasCampaign=campaignValues.length>0;
   const hasAdGroup=adgroupValues.length>0;
-  let filterMode=null;
+  const hasSelection=hasCampaign || hasAdGroup;
+  let filterMode='all';
   const lastSlot=tracker?.lastSlot;
-  if(lastSlot==='adgroup' && hasAdGroup){
-    filterMode='adgroup';
-  }else if(lastSlot==='campaign' && hasCampaign){
-    filterMode='campaign';
-  }
-  if(!filterMode){
-    if(hasAdGroup && !hasCampaign){
+  if(hasSelection){
+    if(lastSlot==='adgroup' && hasAdGroup){
+      filterMode='adgroup';
+    }else if(lastSlot==='campaign' && hasCampaign){
+      filterMode='campaign';
+    }else if(hasAdGroup && !hasCampaign){
       filterMode='adgroup';
     }else if(hasCampaign && !hasAdGroup){
       filterMode='campaign';
     }else if(hasCampaign && hasAdGroup){
       filterMode='adgroup';
     }
-  }
-  if(!filterMode){
-    if(tracker) tracker.lastSlot=null;
-    if(tracker) tracker.toastKey=null;
-    view.card.hidden=true;
-    return;
+  }else if(tracker){
+    tracker.toastKey=null;
   }
   if(tracker) tracker.lastSlot=filterMode;
   view.card.hidden=false;
@@ -6881,10 +6881,10 @@ function updateAdvertisedProductsDisplay(){
     const filtered=filterAdvertisedProductRows(rows, campaignValues, adgroupValues, filterMode);
     if(filtered.length){
       setAdvertisedProductsView('rows', filtered);
-      announceAdvertisedProductsLoaded(filtered.length);
+      announceAdvertisedProductsLoaded(filtered.length, token);
     }else{
       setAdvertisedProductsView('empty');
-      announceAdvertisedProductsLoaded(0);
+      announceAdvertisedProductsLoaded(0, token);
     }
   }).catch(()=>{
     if(state.advertisedProducts?.renderToken!==token) return;
