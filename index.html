@@ -2009,6 +2009,15 @@ const fmt={
   money0:n=>isFinite(n)?n.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0,minimumFractionDigits:0}):"—",
   num0:n=>isFinite(n)?new Intl.NumberFormat(undefined,{maximumFractionDigits:0,minimumFractionDigits:0}).format(n):"—"
 };
+const INR_CURRENCY_FORMATTER=new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:2,minimumFractionDigits:0});
+function formatCurrencyINR(value){
+  const amount=Number.isFinite(value)?value:0;
+  try{
+    return INR_CURRENCY_FORMATTER.format(amount);
+  }catch(_){
+    return `₹${amount.toLocaleString('en-IN',{maximumFractionDigits:2,minimumFractionDigits:0})}`;
+  }
+}
 const MONTH_NAMES=["January","February","March","April","May","June","July","August","September","October","November","December"];
 const KPI_HEADER_VARIANTS={
   spend:['spend','cost','adspend','ad spend','advertisingcost','advertising cost','adcost','totalspend','total spend'],
@@ -2495,7 +2504,7 @@ const state={
   asinSkuMap:new Map(),
   asinSkuLoaded:false,
   asinValueMap:new Map(),
-  advertisedProducts:{rows:[],loaded:false,renderToken:0,lastSlot:null,placeholder:false,placeholderMessage:'',loadError:false},
+  advertisedProducts:{rows:[],loaded:false,renderToken:0,lastSlot:null,placeholder:false,placeholderMessage:'',loadError:false,toastKey:null},
   conversionPage:{st:0,asin:0},
   lastTabIndex:0,
   pivotFilters:{},
@@ -2856,7 +2865,10 @@ async function restoreDatasetState(datasetKey){
   state.monthTab=cached.monthTab||'months';
   state.customRange=cloneDeep(cached.customRange)||{start:null,end:null,active:false};
   state.dateBounds=cloneDeep(cached.dateBounds)||{min:null,max:null};
-  state.advertisedProducts=cloneDeep(cached.advertisedProducts)||{rows:[],loaded:false,renderToken:0,lastSlot:null,placeholder:false,placeholderMessage:'',loadError:false};
+  state.advertisedProducts=cloneDeep(cached.advertisedProducts)||{rows:[],loaded:false,renderToken:0,lastSlot:null,placeholder:false,placeholderMessage:'',loadError:false,toastKey:null};
+  if(state.advertisedProducts){
+    state.advertisedProducts.toastKey=null;
+  }
   state.conversionPage=cloneDeep(cached.conversionPage)||{st:0,asin:0};
   state.lastTabIndex=Number.isFinite(cached.lastTabIndex)?cached.lastTabIndex:0;
   state.pivotFilters=cloneDeep(cached.pivotFilters)||{};
@@ -3249,6 +3261,7 @@ async function applyAdvertisedDatasetFallback(){
       state.advertisedProducts.loaded=false;
       state.advertisedProducts.rows=[];
       state.advertisedProducts.loadError=true;
+      state.advertisedProducts.toastKey=null;
     }
     setHasData(true);
     renderAll();
@@ -3271,6 +3284,7 @@ function clearAdvertisedFallbackState(){
     state.advertisedProducts.loaded=false;
     state.advertisedProducts.rows=[];
     state.advertisedProducts.renderToken=0;
+    state.advertisedProducts.toastKey=null;
   }
   advertisedProductsPromise=null;
   setDatasetWarning('advertised', null);
@@ -3294,6 +3308,7 @@ function retryAdvertisedDataset(){
     state.advertisedProducts.loaded=false;
     state.advertisedProducts.rows=[];
     state.advertisedProducts.loadError=false;
+    state.advertisedProducts.toastKey=null;
   }
   clearDatasetCache('advertised');
   clearWorkbookCacheForOption(getWorkbookOption('advertised'));
@@ -3900,6 +3915,7 @@ function ensureAdvertisedProductsData(){
       entry.loadError=false;
       entry.placeholder=false;
       entry.placeholderMessage='';
+      entry.toastKey=null;
     }
     return entry?.rows||[];
   }).catch(err=>{
@@ -3908,6 +3924,7 @@ function ensureAdvertisedProductsData(){
       entry.rows=[];
       entry.loaded=false;
       entry.loadError=true;
+      entry.toastKey=null;
     }
     throw err;
   }).finally(()=>{
@@ -4643,6 +4660,7 @@ function setHasData(has, options={}){
       state.advertisedProducts.placeholder=false;
       state.advertisedProducts.placeholderMessage='';
       state.advertisedProducts.loadError=false;
+      state.advertisedProducts.toastKey=null;
     }
     closePivotFilterPopup(false);
     state.columns={};
@@ -6791,6 +6809,23 @@ function setAdvertisedProductsView(status, rows){
   }
 }
 
+function announceAdvertisedProductsLoaded(rowCount){
+  if(getActiveDatasetKey()!=='advertised') return;
+  const tracker=state.advertisedProducts;
+  if(!tracker) return;
+  const count=Number.isFinite(rowCount)?rowCount:0;
+  const totals=computeKPIs(buildFilterContext(null));
+  const spend=Number.isFinite(totals?.S)?totals.S:0;
+  const signature=`${count}|${spend.toFixed(2)}`;
+  if(tracker.toastKey===signature){
+    return;
+  }
+  tracker.toastKey=signature;
+  const rowsLabel=count.toLocaleString();
+  const formattedSpend=formatCurrencyINR(spend);
+  showToast(`Loaded ${rowsLabel} rows · Total Spend: ${formattedSpend}`);
+}
+
 function updateAdvertisedProductsDisplay(){
   const view=el.advertisedProducts;
   if(!view || !view.card) return;
@@ -6800,6 +6835,7 @@ function updateAdvertisedProductsDisplay(){
   }
   const token=tracker?.renderToken||0;
   if(!state.hasData || state.activeTab!=='campaignPortfolio'){
+    if(tracker) tracker.toastKey=null;
     view.card.hidden=true;
     return;
   }
@@ -6827,6 +6863,7 @@ function updateAdvertisedProductsDisplay(){
   }
   if(!filterMode){
     if(tracker) tracker.lastSlot=null;
+    if(tracker) tracker.toastKey=null;
     view.card.hidden=true;
     return;
   }
@@ -6834,6 +6871,7 @@ function updateAdvertisedProductsDisplay(){
   view.card.hidden=false;
   if(tracker?.placeholder){
     const message=tracker.placeholderMessage || state.datasetWarnings?.advertised || ADVERTISED_FALLBACK_MESSAGE;
+    tracker.toastKey=null;
     setAdvertisedProductsView('placeholder', message);
     return;
   }
@@ -6843,11 +6881,14 @@ function updateAdvertisedProductsDisplay(){
     const filtered=filterAdvertisedProductRows(rows, campaignValues, adgroupValues, filterMode);
     if(filtered.length){
       setAdvertisedProductsView('rows', filtered);
+      announceAdvertisedProductsLoaded(filtered.length);
     }else{
       setAdvertisedProductsView('empty');
+      announceAdvertisedProductsLoaded(0);
     }
   }).catch(()=>{
     if(state.advertisedProducts?.renderToken!==token) return;
+    if(state.advertisedProducts) state.advertisedProducts.toastKey=null;
     setAdvertisedProductsView('error');
   });
 }
