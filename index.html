@@ -906,12 +906,29 @@ async function yieldForHeavyWork(){
     }
   });
 }
+function createSqlMemory(){
+  if(typeof WebAssembly!=='object' || typeof WebAssembly.Memory!=='function'){
+    return null;
+  }
+  const INITIAL_PAGES=4096; // 4096 * 64KB = 256MB
+  const MAXIMUM_PAGES=8192; // allow growth up to 512MB
+  try{
+    return new WebAssembly.Memory({initial:INITIAL_PAGES, maximum:Math.max(INITIAL_PAGES, MAXIMUM_PAGES)});
+  }catch(err){
+    console.warn('SQL.js custom memory allocation failed, falling back to default memory.', err);
+    return null;
+  }
+}
+
 function loadSqlLibrary(){
   if(!sqlLibPromise){
     const ensureInit=()=>{
       if(typeof initSqlJs==='function'){
         try{
-          return initSqlJs({ locateFile:(file)=>`https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.9.0/${file}` });
+          const memory=createSqlMemory();
+          const config={ locateFile:(file)=>`https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.9.0/${file}` };
+          if(memory) config.wasmMemory=memory;
+          return initSqlJs(config);
         }catch(err){
           return Promise.reject(err);
         }
