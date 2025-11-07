@@ -2858,17 +2858,32 @@ async function restoreDatasetState(datasetKey){
   if(!key) return false;
   const cached=datasetStateCache.get(key);
   if(!cached) return false;
+  const rawExport=cached.sql?.dbExport;
+  const hasExport=rawExport instanceof Uint8Array ? rawExport.length>0 : Array.isArray(rawExport) && rawExport.length>0;
+  if(!hasExport){
+    console.warn('Dataset cache missing SQL export, forcing reload:', key);
+    return false;
+  }
   const SQL=await (sqlReadyPromise || loadSqlLibrary());
   if(!SQL) throw new Error('Unable to initialize SQL engine');
+  let dbExport=cached.sql?.dbExport;
+  if(dbExport && typeof dbExport.slice==='function'){
+    dbExport=dbExport.slice(0);
+  }
+  let restoredDb;
+  try{
+    restoredDb=new SQL.Database(dbExport);
+  }catch(err){
+    console.warn('Dataset cache SQL restore failed, forcing reload:', key, err);
+    return false;
+  }
   setHasData(false,{silent:true});
   if(state.sql?.db){
     try{ state.sql.db.close(); }catch(_){ }
   }
   const columnMapEntries=Array.isArray(cached.sql?.columnMapEntries)?cached.sql.columnMapEntries:[];
-  const dbExport=cached.sql?.dbExport;
-  const db=dbExport?new SQL.Database(dbExport):null;
   state.sql={
-    db,
+    db:restoredDb,
     table:cached.sql?.table||'',
     columns:cloneDeep(cached.sql?.columns||[]),
     columnMap:new Map(columnMapEntries.map(([k,v])=>[k, cloneDeep(v)])),
