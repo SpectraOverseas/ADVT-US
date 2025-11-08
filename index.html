@@ -53,6 +53,9 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .btn-outline{display:inline-flex;align-items:center;gap:8px;background:transparent;border-color:var(--btnText);color:var(--btnText)}
 /* icon-only theme button */
 .btn-mode{display:inline-flex;align-items:center;gap:0;border-radius:14px;padding:10px;border:1px solid var(--modeBtnBg);background:var(--modeBtnBg);color:var(--modeIcon);width:42px;justify-content:center}
+.btn-icon{display:inline-flex;align-items:center;justify-content:center;width:42px;height:42px;padding:10px;border-radius:12px;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--panel) 85%, var(--chip));color:var(--muted);transition:background .2s ease,color .2s ease,transform .12s ease,box-shadow .25s ease}
+.btn-icon:hover{background:color-mix(in srgb,var(--chip) 92%, var(--panel));color:var(--text);transform:translateY(-1px);box-shadow:0 8px 18px rgba(15,23,42,.22)}
+.btn-icon:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 
 /* Header */
 .app-header{display:grid;grid-template-columns:auto minmax(260px,1fr) auto;align-items:center;gap:clamp(12px,2vw,24px);padding:12px clamp(14px,3vw,28px);border-bottom:1px solid var(--border);background:var(--header-grad);position:sticky;top:0;backdrop-filter:blur(6px);z-index:20}
@@ -87,6 +90,21 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .dd-search-mode .dd-item.is-selected .dd-text::after{content:none}
 .dd-search-mode .dd-count{color:var(--muted);font-size:12px}
 .dd-search-mode .dd-empty{padding:18px 12px;font-weight:600;color:var(--muted)}
+.dataset-menu{position:relative;display:inline-flex}
+.dataset-menu-popup{position:absolute;top:calc(100% + 8px);right:0;min-width:220px;max-width:280px;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px;z-index:130}
+.dataset-menu-popup[hidden]{display:none}
+.dataset-menu-head{display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:800;color:var(--text)}
+.dataset-menu-current{font-size:12px;font-weight:600;color:var(--muted)}
+.dataset-menu-list{display:flex;flex-direction:column;gap:6px}
+.dataset-menu-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:10px;border:1px solid transparent;background:color-mix(in srgb,var(--panel) 92%, transparent);color:var(--text);font-weight:600;cursor:pointer;transition:background .2s ease,transform .12s ease,border-color .2s ease,box-shadow .25s ease}
+.dataset-menu-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dataset-menu-item:hover{background:color-mix(in srgb,var(--chip) 90%, var(--panel));transform:translateY(-1px);box-shadow:0 8px 20px rgba(15,23,42,.22)}
+.dataset-menu-item:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.dataset-menu-item .dataset-menu-meta{font-size:12px;font-weight:600;color:var(--muted)}
+.dataset-menu-item .dataset-menu-check{opacity:0;color:var(--accent);font-size:14px}
+.dataset-menu-item.is-active{border-color:color-mix(in srgb,var(--accent) 55%, var(--border));background:color-mix(in srgb,var(--accent) 18%, var(--panel));box-shadow:0 12px 28px rgba(37,99,235,.22)}
+.dataset-menu-item.is-active .dataset-menu-check{opacity:1}
+.dataset-menu-empty{padding:6px 0;font-weight:600;color:var(--muted);text-align:center}
 @media(max-width:900px){
   .app-header{grid-template-columns:1fr;justify-items:center;text-align:center}
   .header-title{justify-content:center}
@@ -370,6 +388,19 @@ body.has-data #tipPill{display:none !important}
   <div class="actions">
     <button id="resetFilters" class="btn-reset">Reset</button>
     <button id="openFilters" class="btn-filters" style="display:none">Filters</button>
+    <div class="dataset-menu" id="datasetMenuContainer">
+      <button id="datasetMenuBtn" type="button" class="btn-icon" title="Select dataset" aria-label="Select dataset" aria-haspopup="true" aria-expanded="false">
+        ☰
+      </button>
+      <div id="datasetMenu" class="dataset-menu-popup" role="menu" aria-orientation="vertical" hidden>
+        <div class="dataset-menu-head">
+          <span>Datasets</span>
+          <span id="datasetMenuCurrent" class="dataset-menu-current">No dataset loaded</span>
+        </div>
+        <div id="datasetMenuList" class="dataset-menu-list" role="none"></div>
+        <div id="datasetMenuEmpty" class="dataset-menu-empty" hidden>No built-in datasets found</div>
+      </div>
+    </div>
     <button id="pickLocalBtn" class="btn-primary btn-success">Open XLSX</button>
     <input id="fileInput" type="file" accept=".xlsx,.xls" hidden />
     <button id="downloadCsvBtn" class="btn-primary btn-success" disabled>Download CSV</button>
@@ -2098,6 +2129,14 @@ const el={
   dlCsv:document.getElementById('downloadCsvBtn'),
   openFiltersBtn:document.getElementById('openFilters'),
   resetFiltersBtn:document.getElementById('resetFilters'),
+  datasetMenu:{
+    container:document.getElementById('datasetMenuContainer'),
+    btn:document.getElementById('datasetMenuBtn'),
+    popup:document.getElementById('datasetMenu'),
+    list:document.getElementById('datasetMenuList'),
+    current:document.getElementById('datasetMenuCurrent'),
+    empty:document.getElementById('datasetMenuEmpty')
+  },
   modal:document.getElementById('filtersModal'),
   closeFiltersBtn:document.getElementById('closeFilters'),
   cancelFiltersBtn:document.getElementById('cancelFilters'),
@@ -2157,8 +2196,148 @@ const state={
   activePivotPopup:null,
   activePivotModal:null,
   filtersReturn:null,
-  sql:{db:null, table:'', columns:[], columnMap:new Map(), rowCount:0}
+  sql:{db:null, table:'', columns:[], columnMap:new Map(), rowCount:0},
+  dataset:{type:'',file:'',label:''}
 };
+
+function setActiveDataset(info){
+  if(!info){
+    state.dataset={type:'',file:'',label:''};
+  }else{
+    const file=info.file?String(info.file).trim():'';
+    const label=info.label || (file?formatDatasetLabelFromFile(file):'');
+    state.dataset={
+      type:info.type||'',
+      file,
+      label:label || file
+    };
+  }
+  updateDatasetMenuActive();
+}
+
+function updateDatasetMenuActive(){
+  const dataset=state.dataset||{type:'',file:'',label:''};
+  const menu=el.datasetMenu||{};
+  if(menu.list){
+    menu.list.querySelectorAll('[data-dataset-id]').forEach(item=>{
+      const type=item.dataset.datasetType||'';
+      const file=item.dataset.datasetFile||'';
+      const isActive=!!dataset.file && dataset.type===type && dataset.file===file;
+      item.classList.toggle('is-active', isActive);
+      item.setAttribute('aria-checked', isActive?'true':'false');
+    });
+  }
+  if(menu.current){
+    menu.current.textContent = dataset.label ? `Current: ${dataset.label}` : 'No dataset loaded';
+  }
+  const base='Select dataset';
+  const suffix=dataset.label?` (current: ${dataset.label})`:'';
+  if(menu.btn){
+    const label=`${base}${suffix}`;
+    menu.btn.setAttribute('aria-label', label);
+    menu.btn.setAttribute('title', label);
+  }
+}
+
+function isDatasetMenuOpen(){
+  const popup=el.datasetMenu?.popup;
+  return !!(popup && !popup.hasAttribute('hidden'));
+}
+
+function openDatasetMenu(){
+  const menu=el.datasetMenu;
+  if(!menu?.popup) return false;
+  if(isDatasetMenuOpen()) return false;
+  menu.popup.classList.add('open');
+  menu.popup.removeAttribute('hidden');
+  if(menu.btn) menu.btn.setAttribute('aria-expanded','true');
+  clampPanelRight(menu.popup);
+  return true;
+}
+
+function closeDatasetMenu(focusBtn=true){
+  const menu=el.datasetMenu;
+  if(!menu?.popup) return false;
+  if(menu.popup.hasAttribute('hidden')) return false;
+  menu.popup.classList.remove('open');
+  menu.popup.setAttribute('hidden','');
+  if(menu.btn){
+    menu.btn.setAttribute('aria-expanded','false');
+    if(focusBtn){
+      try{ menu.btn.focus({preventScroll:true}); }catch(_){ }
+    }
+  }
+  return true;
+}
+
+function toggleDatasetMenu(){
+  if(isDatasetMenuOpen()) closeDatasetMenu(false);
+  else openDatasetMenu();
+}
+
+function initDatasetMenu(){
+  const menu=el.datasetMenu;
+  if(!menu?.list) return;
+  const options=getBuiltinDatasetOptions();
+  menu.list.innerHTML='';
+  if(options.length){
+    options.forEach(opt=>{
+      const button=document.createElement('button');
+      button.type='button';
+      button.className='dataset-menu-item';
+      button.dataset.datasetId=opt.id;
+      button.dataset.datasetType=opt.type;
+      button.dataset.datasetFile=opt.file;
+      button.dataset.datasetLabel=opt.label;
+      button.setAttribute('role','menuitemradio');
+      button.setAttribute('aria-checked','false');
+      const metaText=opt.meta?`<span class="dataset-menu-meta">${escapeHtml(opt.meta)}</span>`:'';
+      button.innerHTML=`<span class="dataset-menu-name">${escapeHtml(opt.label)}</span>${metaText}<span class="dataset-menu-check" aria-hidden="true">✔</span>`;
+      menu.list.appendChild(button);
+    });
+    if(menu.empty) menu.empty.hidden=true;
+  }else if(menu.empty){
+    menu.empty.hidden=false;
+  }
+  if(menu.list) menu.list.hidden = !options.length;
+  if(menu.list && !menu.list.__datasetMenuBound){
+    menu.list.addEventListener('click', onDatasetMenuClick);
+    menu.list.__datasetMenuBound=true;
+  }
+  if(menu.btn && !menu.btn.__datasetMenuBound){
+    menu.btn.addEventListener('click', ev=>{
+      ev.preventDefault();
+      toggleDatasetMenu();
+    });
+    menu.btn.__datasetMenuBound=true;
+  }
+  updateDatasetMenuActive();
+}
+
+async function onDatasetMenuClick(event){
+  const button=event.target.closest?.('[data-dataset-id]');
+  if(!button) return;
+  event.preventDefault();
+  const type=button.dataset.datasetType||'';
+  const file=button.dataset.datasetFile||'';
+  const label=button.dataset.datasetLabel || formatDatasetLabelFromFile(file);
+  closeDatasetMenu(false);
+  if(!type || !file) return;
+  try{
+    showLoading(true);
+    if(type==='workbook'){
+      await loadWorkbookDatasetFromUrl(file,label);
+    }else if(type==='preprocessed'){
+      await loadPreprocessedDatasetFromUrl(file,label);
+    }
+  }catch(err){
+    console.error(`Failed to load dataset ${file}:`, err);
+    alert(`Unable to load dataset "${label}": ${err?.message||err}`);
+    if(!state.hasData) setHasData(false);
+  }finally{
+    showLoading(false);
+  }
+}
 const TAB_ORDER=['overview','overall','campaignPortfolio','targeting'];
 const PIVOT_SORT_KEYS=new Set(['label','sku','spend','sales','acos']);
 
@@ -2217,6 +2396,50 @@ let advertisedProductsPromise=null;
 let defaultWorkbookPromise=null;
 let defaultWorkbookTimer=null;
 let loadingDepth=0;
+
+function formatDatasetLabelFromFile(file){
+  if(!file) return '';
+  const parts=String(file).split(/[\\/]/);
+  const name=parts[parts.length-1]||String(file);
+  const withoutExt=name.replace(/\.[^.]+$/,'');
+  const prettified=withoutExt.replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim();
+  return prettified||withoutExt||name;
+}
+
+function createDatasetId(type,file){
+  return `${type||''}:${(file||'').toLowerCase()}`;
+}
+
+function getBuiltinDatasetOptions(){
+  const options=[];
+  if(Array.isArray(DEFAULT_WORKBOOKS)){
+    DEFAULT_WORKBOOKS.forEach(file=>{
+      const trimmed=typeof file==='string'?file.trim():'';
+      if(!trimmed) return;
+      options.push({
+        id:createDatasetId('workbook', trimmed),
+        type:'workbook',
+        file:trimmed,
+        label:formatDatasetLabelFromFile(trimmed),
+        meta:'Workbook'
+      });
+    });
+  }
+  if(Array.isArray(DEFAULT_PREPROCESSED_DATA)){
+    DEFAULT_PREPROCESSED_DATA.forEach(file=>{
+      const trimmed=typeof file==='string'?file.trim():'';
+      if(!trimmed) return;
+      options.push({
+        id:createDatasetId('preprocessed', trimmed),
+        type:'preprocessed',
+        file:trimmed,
+        label:formatDatasetLabelFromFile(trimmed),
+        meta:'Preprocessed'
+      });
+    });
+  }
+  return options;
+}
 
 function ensureAsinSkuMap(){
   if(state.asinSkuLoaded){
@@ -2853,6 +3076,7 @@ function getPivotConfig(){ return PIVOT_CONFIG[state.activeTab] || PIVOT_CONFIG.
 
 function boot(){
   setHasData(false);
+  initDatasetMenu();
   setupTabs();
   assignPivotSlots();
   updatePivotFilterButtons();
@@ -2903,6 +3127,12 @@ function boot(){
   if(el.monthCustomCancel) el.monthCustomCancel.addEventListener('click', handleCustomRangeCancel);
 
   document.addEventListener('click', (e)=>{
+    if(isDatasetMenuOpen()){
+      const menuRoot=el.datasetMenu?.container;
+      if(menuRoot && !menuRoot.contains(e.target)){
+        closeDatasetMenu(false);
+      }
+    }
     const monthRoot=el.monthDD;
     const clickedInsideMonth=monthRoot?.contains?.(e.target);
     if(monthRoot && !clickedInsideMonth && monthRoot.classList.contains('open')){
@@ -2949,6 +3179,13 @@ function boot(){
 
   document.addEventListener('keydown', (ev)=>{
     if(ev.key==='Escape' || ev.key==='Esc'){
+      if(isDatasetMenuOpen()){
+        if(closeDatasetMenu()){
+          ev.stopPropagation();
+          ev.preventDefault();
+          return;
+        }
+      }
       if(closePivotFilterPopup(false)){
         ev.stopPropagation();
         ev.preventDefault();
@@ -3059,6 +3296,8 @@ function setHasData(has){
     resetKpis();
     hideCustomRangePanel();
     syncCustomRangeInputs();
+    setActiveDataset(null);
+    closeDatasetMenu(false);
   }
   updateMonthSummary();
   updateTabsUI();
@@ -3150,7 +3389,13 @@ async function handleLocalFile(e){
   try{
     showLoading(true);
     const buf = await f.arrayBuffer();
-    await loadWorkbookBuffer(buf);
+    await loadWorkbookBuffer(buf,{
+      dataset:{
+        type:'local',
+        file:f.name||'local-file',
+        label:f.name||'Local file'
+      }
+    });
   }catch(err){
     console.error(err);
     alert('Failed to parse Excel: '+(err?.message||err));
@@ -3160,10 +3405,83 @@ async function handleLocalFile(e){
     e.target.value='';
   }
 }
-async function loadWorkbookBuffer(buf){
+async function loadWorkbookBuffer(buf, options={}){
   await parseExcel(buf);
+  if(options?.dataset){
+    setActiveDataset(options.dataset);
+  }else if(options){
+    const datasetInfo={
+      type:options.type||'',
+      file:options.file||'',
+      label:options.label||''
+    };
+    if(datasetInfo.type || datasetInfo.file || datasetInfo.label){
+      setActiveDataset(datasetInfo);
+    }
+  }
   setHasData(true);
 }
+
+async function fetchArrayBufferFromUrl(file){
+  let targetUrl;
+  try{
+    targetUrl=new URL(file, document.baseURI).href;
+  }catch(_){
+    targetUrl=encodeURI(file);
+  }
+  const response=await fetch(targetUrl,{cache:'no-store'});
+  if(!response.ok && response.status!==0){
+    const status=response.status||'';
+    const statusText=response.statusText||'';
+    const detail=[status?`HTTP ${status}`:'',statusText].filter(Boolean).join(' ').trim();
+    throw new Error(detail||'Unable to fetch dataset');
+  }
+  return response.arrayBuffer();
+}
+
+async function fetchJsonFromUrl(file){
+  let targetUrl;
+  try{
+    targetUrl=new URL(file, document.baseURI).href;
+  }catch(_){
+    targetUrl=encodeURI(file);
+  }
+  const response=await fetch(targetUrl,{cache:'no-store'});
+  if(!response.ok && response.status!==0){
+    const status=response.status||'';
+    const statusText=response.statusText||'';
+    const detail=[status?`HTTP ${status}`:'',statusText].filter(Boolean).join(' ').trim();
+    throw new Error(detail||'Unable to fetch dataset');
+  }
+  return response.json();
+}
+
+async function loadWorkbookDatasetFromUrl(file,label){
+  const dataset={
+    type:'workbook',
+    file,
+    label:label || formatDatasetLabelFromFile(file)
+  };
+  const buf=await fetchArrayBufferFromUrl(file);
+  await loadWorkbookBuffer(buf,{dataset});
+  return dataset;
+}
+
+async function loadPreprocessedDatasetFromUrl(file,label){
+  const payload=await fetchJsonFromUrl(file);
+  const sheetData=Array.isArray(payload?.sheet_data)?payload.sheet_data:null;
+  if(!sheetData || !sheetData.length) throw new Error('Dataset is missing sheet data');
+  const headerRowIndex=Number.isInteger(payload?.header_row_index)?payload.header_row_index:1;
+  await buildStateFromSheetData(sheetData,{headerRowIndex});
+  setActiveDataset({
+    type:'preprocessed',
+    file,
+    label:label || formatDatasetLabelFromFile(file)
+  });
+  setHasData(true);
+  return state.dataset;
+}
+
 async function attemptPreprocessedData(){
   const list=Array.isArray(DEFAULT_PREPROCESSED_DATA)?DEFAULT_PREPROCESSED_DATA:[DEFAULT_PREPROCESSED_DATA];
   const files=list.map(file=>typeof file==='string'?file.trim():'').filter(Boolean);
@@ -3172,27 +3490,8 @@ async function attemptPreprocessedData(){
   try{
     for(const file of files){
       if(state.hasData) return;
-      let targetUrl;
       try{
-        targetUrl=new URL(file, document.baseURI).href;
-      }catch(_){
-        targetUrl=encodeURI(file);
-      }
-      try{
-        const response=await fetch(targetUrl,{cache:'no-store'});
-        if(!response.ok && response.status!==0){
-          console.warn(`Preprocessed data not available: ${file}`);
-          continue;
-        }
-        const payload=await response.json();
-        const sheetData=Array.isArray(payload?.sheet_data)?payload.sheet_data:null;
-        if(!sheetData || !sheetData.length){
-          console.warn(`Preprocessed data missing sheet_data in ${file}`);
-          continue;
-        }
-        const headerRowIndex=Number.isInteger(payload?.header_row_index)?payload.header_row_index:1;
-        await buildStateFromSheetData(sheetData,{headerRowIndex});
-        setHasData(true);
+        await loadPreprocessedDatasetFromUrl(file);
         return;
       }catch(err){
         console.warn(`Failed to load preprocessed data from ${file}:`, err);
@@ -3211,22 +3510,8 @@ async function attemptDefaultWorkbook(){
   try{
     for(const file of files){
       if(state.hasData) return;
-      let targetUrl;
       try{
-        targetUrl=new URL(file, document.baseURI).href;
-      }catch(_){
-        targetUrl=encodeURI(file);
-      }
-      try{
-        const response=await fetch(targetUrl,{cache:'no-store'});
-        if(!response.ok && response.status!==0){
-          console.warn(`Default workbook not available: ${file}`);
-          continue;
-        }
-        if(state.hasData) return;
-        const buf=await response.arrayBuffer();
-        if(state.hasData) return;
-        await loadWorkbookBuffer(buf);
+        await loadWorkbookDatasetFromUrl(file);
         if(state.hasData) return;
         return;
       }catch(err){
