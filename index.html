@@ -2211,7 +2211,7 @@ const DEFAULT_WORKBOOKS=[
   'Products Search Term.xlsx'
 ];
 const ASIN_SKU_WORKBOOK='ASINwise SKU.xlsx';
-const ADVERTISED_PRODUCTS_WORKBOOK='Products Advertised Product.xlsx';
+const ADVERTISED_PRODUCTS_WORKBOOK=ASIN_SKU_WORKBOOK;
 let asinSkuPromise=null;
 let advertisedProductsPromise=null;
 let defaultWorkbookPromise=null;
@@ -2256,77 +2256,15 @@ async function loadAsinSkuWorkbook(){
     const buf=await response.arrayBuffer();
     const wb=XLSX.read(buf,{type:'array',cellDates:false,cellNF:false,cellText:false});
     if(!wb.SheetNames || !wb.SheetNames.length) return new Map();
-    const ws=wb.Sheets[wb.SheetNames[0]];
-    if(!ws) return new Map();
-    const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
-    if(!rows || rows.length<2) return new Map();
-    const sanitizeRow=row=>(row||[]).map(v=>String(v??'').trim());
-    let headerIndex=rows.length>1?1:0;
-    let headers=sanitizeRow(rows[headerIndex]);
-    let asinIdx=findIndexByTokens(headers,['advertisedasin','asin']);
-    let sellerIdx=findIndexByTokens(headers,['sellersku','seller sku','seller-sku']);
-    let plainIdx=findIndexByTokens(headers,['plainsku','plain sku','plain-sku']);
-    let skuIdx=findIndexByTokens(headers,['advertisedsku','sku']);
-    if(
-      asinIdx<0 ||
-      (sellerIdx<0 && plainIdx<0 && skuIdx<0)
-    ){
-      for(let i=0;i<Math.min(rows.length,6);i++){
-        const candidate=sanitizeRow(rows[i]);
-        const aIdx=findIndexByTokens(candidate,['advertisedasin','asin']);
-        const sellerCandidate=findIndexByTokens(candidate,['sellersku','seller sku','seller-sku']);
-        const plainCandidate=findIndexByTokens(candidate,['plainsku','plain sku','plain-sku']);
-        const skuCandidate=findIndexByTokens(candidate,['advertisedsku','sku']);
-        if(aIdx>-1 && (sellerCandidate>-1 || plainCandidate>-1 || skuCandidate>-1)){
-          headerIndex=i;
-          headers=candidate;
-          asinIdx=aIdx;
-          sellerIdx=sellerCandidate;
-          plainIdx=plainCandidate;
-          skuIdx=skuCandidate;
-          break;
-        }
-      }
+    for(const sheetName of wb.SheetNames){
+      const ws=wb.Sheets[sheetName];
+      if(!ws) continue;
+      const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+      if(!rows || rows.length<2) continue;
+      const map=buildAsinSkuMapFromRows(rows);
+      if(map) return map;
     }
-    if(asinIdx<0 || (sellerIdx<0 && plainIdx<0 && skuIdx<0)) return new Map();
-    const dataRows=rows.slice(headerIndex+1);
-    const map=new Map();
-    dataRows.forEach(row=>{
-      const safeRow=Array.isArray(row)?row:[];
-      const asin=String(safeRow[asinIdx]??'').trim();
-      if(!asin) return;
-      const sellerSkuRaw=sellerIdx>-1?String(safeRow[sellerIdx]??'').trim():'';
-      const plainSkuRaw=plainIdx>-1?String(safeRow[plainIdx]??'').trim():'';
-      const fallbackSku=skuIdx>-1?String(safeRow[skuIdx]??'').trim():'';
-      const sellerSku=sellerSkuRaw || fallbackSku;
-      const plainSku=plainSkuRaw || fallbackSku;
-      if(!sellerSku && !plainSku) return;
-      const asinKey=normalizeAsinKey(asin);
-      if(!asinKey) return;
-      let list=map.get(asinKey);
-      if(!list){
-        list=[];
-        map.set(asinKey,list);
-      }
-      const entry={
-        sellerSku:sellerSku,
-        plainSku:plainSku
-      };
-      if(!list.some(item=>item && item.sellerSku===entry.sellerSku && item.plainSku===entry.plainSku)){
-        list.push(entry);
-      }
-    });
-    const collator=new Intl.Collator(undefined,{sensitivity:'base',numeric:true});
-    map.forEach(list=>list.sort((a,b)=>{
-      const aSeller=String(a?.sellerSku||a?.plainSku||'');
-      const bSeller=String(b?.sellerSku||b?.plainSku||'');
-      const sellerDiff=collator.compare(aSeller,bSeller);
-      if(sellerDiff!==0) return sellerDiff;
-      const aPlain=String(a?.plainSku||'');
-      const bPlain=String(b?.plainSku||'');
-      return collator.compare(aPlain,bPlain);
-    }));
-    return map;
+    return new Map();
   }catch(err){
     console.warn('ASIN SKU mapping load failed:', err);
     return new Map();
@@ -2408,14 +2346,97 @@ async function loadAdvertisedProductsWorkbook(){
   const buf=await response.arrayBuffer();
   const wb=XLSX.read(buf,{type:'array',cellDates:false,cellNF:false,cellText:false});
   if(!wb.SheetNames || !wb.SheetNames.length) return [];
-  const ws=wb.Sheets[wb.SheetNames[0]];
-  if(!ws) return [];
-  const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
-  if(!rows || rows.length<2) return [];
-  const sanitizeRow=row=>(row||[]).map(v=>String(v??'').trim());
+  for(const sheetName of wb.SheetNames){
+    const ws=wb.Sheets[sheetName];
+    if(!ws) continue;
+    const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
+    if(!rows || rows.length<2) continue;
+    const data=buildAdvertisedProductsFromRows(rows);
+    if(data && data.length) return data;
+  }
+  return [];
+}
+
+function sanitizeRow(row){
+  return (row||[]).map(v=>String(v??'').trim());
+}
+
+function buildAsinSkuMapFromRows(rows){
+  if(!Array.isArray(rows) || !rows.length) return null;
   const preferredHeaderIndex=rows.length>1?1:0;
   let headerIndex=preferredHeaderIndex;
-  let headers=sanitizeRow(rows[headerIndex]);
+  let headers=sanitizeRow(rows[headerIndex]||[]);
+  let asinIdx=findIndexByTokens(headers,['advertisedasin','asin']);
+  let sellerIdx=findIndexByTokens(headers,['sellersku','seller sku','seller-sku']);
+  let plainIdx=findIndexByTokens(headers,['plainsku','plain sku','plain-sku']);
+  let skuIdx=findIndexByTokens(headers,['advertisedsku','sku']);
+  if(
+    asinIdx<0 ||
+    (sellerIdx<0 && plainIdx<0 && skuIdx<0)
+  ){
+    for(let i=0;i<Math.min(rows.length,6);i++){
+      const candidate=sanitizeRow(rows[i]);
+      const aIdx=findIndexByTokens(candidate,['advertisedasin','asin']);
+      const sellerCandidate=findIndexByTokens(candidate,['sellersku','seller sku','seller-sku']);
+      const plainCandidate=findIndexByTokens(candidate,['plainsku','plain sku','plain-sku']);
+      const skuCandidate=findIndexByTokens(candidate,['advertisedsku','sku']);
+      if(aIdx>-1 && (sellerCandidate>-1 || plainCandidate>-1 || skuCandidate>-1)){
+        headerIndex=i;
+        headers=candidate;
+        asinIdx=aIdx;
+        sellerIdx=sellerCandidate;
+        plainIdx=plainCandidate;
+        skuIdx=skuCandidate;
+        break;
+      }
+    }
+  }
+  if(asinIdx<0 || (sellerIdx<0 && plainIdx<0 && skuIdx<0)) return null;
+  const map=new Map();
+  for(let i=headerIndex+1;i<rows.length;i++){
+    const row=Array.isArray(rows[i])?rows[i]:[];
+    const asin=String(row[asinIdx]??'').trim();
+    if(!asin) continue;
+    const sellerSkuRaw=sellerIdx>-1?String(row[sellerIdx]??'').trim():'';
+    const plainSkuRaw=plainIdx>-1?String(row[plainIdx]??'').trim():'';
+    const fallbackSku=skuIdx>-1?String(row[skuIdx]??'').trim():'';
+    const sellerSku=sellerSkuRaw || fallbackSku;
+    const plainSku=plainSkuRaw || fallbackSku;
+    if(!sellerSku && !plainSku) continue;
+    const asinKey=normalizeAsinKey(asin);
+    if(!asinKey) continue;
+    let list=map.get(asinKey);
+    if(!list){
+      list=[];
+      map.set(asinKey,list);
+    }
+    const entry={
+      sellerSku:sellerSku,
+      plainSku:plainSku
+    };
+    if(!list.some(item=>item && item.sellerSku===entry.sellerSku && item.plainSku===entry.plainSku)){
+      list.push(entry);
+    }
+  }
+  if(!map.size) return null;
+  const collator=new Intl.Collator(undefined,{sensitivity:'base',numeric:true});
+  map.forEach(list=>list.sort((a,b)=>{
+    const aSeller=String(a?.sellerSku||a?.plainSku||'');
+    const bSeller=String(b?.sellerSku||b?.plainSku||'');
+    const sellerDiff=collator.compare(aSeller,bSeller);
+    if(sellerDiff!==0) return sellerDiff;
+    const aPlain=String(a?.plainSku||'');
+    const bPlain=String(b?.plainSku||'');
+    return collator.compare(aPlain,bPlain);
+  }));
+  return map;
+}
+
+function buildAdvertisedProductsFromRows(rows){
+  if(!Array.isArray(rows) || !rows.length) return null;
+  const preferredHeaderIndex=rows.length>1?1:0;
+  let headerIndex=preferredHeaderIndex;
+  let headers=sanitizeRow(rows[headerIndex]||[]);
   let idxCampaign=findIndexByTokens(headers,['campaignname','campaign']);
   let idxAdGroup=findIndexByTokens(headers,['adgroupname','ad group name','adgroup']);
   let idxSku=findIndexByTokens(headers,['advertisedsku','sku']);
@@ -2441,15 +2462,15 @@ async function loadAdvertisedProductsWorkbook(){
     }
     if((idxCampaign<0 && idxAdGroup<0) || (idxSku<0 && idxAsin<0)){
       headerIndex=preferredHeaderIndex;
-      headers=sanitizeRow(rows[headerIndex]);
+      headers=sanitizeRow(rows[headerIndex]||[]);
       idxCampaign=findIndexByTokens(headers,['campaignname','campaign']);
       idxAdGroup=findIndexByTokens(headers,['adgroupname','ad group name','adgroup']);
       idxSku=findIndexByTokens(headers,['advertisedsku','sku']);
       idxAsin=findIndexByTokens(headers,['advertisedasin','asin']);
     }
   }
-  if(idxCampaign<0 && idxAdGroup<0) return [];
-  if(idxSku<0 && idxAsin<0) return [];
+  if(idxCampaign<0 && idxAdGroup<0) return null;
+  if(idxSku<0 && idxAsin<0) return null;
   const data=[];
   for(let i=headerIndex+1;i<rows.length;i++){
     const row=Array.isArray(rows[i])?rows[i]:[];
@@ -2468,7 +2489,7 @@ async function loadAdvertisedProductsWorkbook(){
       adGroupKey:normalizeAdvertisedKey(adGroup)
     });
   }
-  return data;
+  return data.length?data:null;
 }
 
 function skuEntriesToValues(entries){
