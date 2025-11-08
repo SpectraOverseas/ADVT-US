@@ -3065,12 +3065,84 @@ function setHasData(has){
   updateResetButtonVisibility();
 }
 
-/* ===== Excel parsing (headers row 2, data from row 3) ===== */
+/* ===== Excel parsing (headers row auto-detected) ===== */
 function findIndexByTokens(headers, tokens){
   const HX=headers.map(h=>String(h||'').toLowerCase().replace(/[^a-z0-9]+/g,''));
   for(const t of tokens){ const i=HX.indexOf(t); if(i>-1) return i; }
   for(let i=0;i<HX.length;i++){ const h=HX[i]; if(tokens.some(t=>h.includes(t))) return i; }
   return -1;
+}
+const HEADER_ROW_SCORE_GROUPS=(
+  [
+    ['store','lo','market','site','locale','country','account'],
+    ['sales','revenue','totalsales','orderedrevenue','attributedsales'],
+    ['spend','adspend','cost','advertisingcost'],
+    ['clicks'],
+    ['impressions','impr'],
+    ['customersearchterm','searchterm','term'],
+    ['campaignname','campaign'],
+    ['adgroupname','adgroup'],
+    ['portfolioname','portfolio'],
+    ['placement'],
+    ['targetingtype','adtype','type'],
+    ['targetingsubtype','matchtype','subtype']
+  ]
+).map(group=>group.map(token=>token.toLowerCase().replace(/[^a-z0-9]+/g,'')));
+function scoreHeaderRow(headers){
+  if(!Array.isArray(headers) || !headers.length) return 0;
+  let score=0;
+  for(const tokens of HEADER_ROW_SCORE_GROUPS){
+    if(findIndexByTokens(headers,tokens)>-1){
+      score+=1;
+    }
+  }
+  return score;
+}
+function detectHeaderRowIndex(sheetData){
+  if(!Array.isArray(sheetData) || !sheetData.length) return 1;
+  const limit=Math.min(sheetData.length,50);
+  let bestIndex=-1;
+  let bestScore=-1;
+  let bestTextCount=-1;
+  let bestDistinctCount=-1;
+  for(let idx=0; idx<limit; idx++){
+    const row=Array.isArray(sheetData[idx])?sheetData[idx]:[];
+    if(!row || !row.length) continue;
+    const headers=row.map(value=>{
+      if(value==null) return '';
+      const text=typeof value==='string'?value:String(value);
+      return text.trim();
+    });
+    const textCount=headers.filter(Boolean).length;
+    if(!textCount) continue;
+    const distinctCount=new Set(headers.filter(Boolean).map(h=>h.toLowerCase())).size;
+    if(distinctCount<3) continue;
+    const score=scoreHeaderRow(headers);
+    if(
+      score>bestScore ||
+      (score===bestScore && distinctCount>bestDistinctCount) ||
+      (score===bestScore && distinctCount===bestDistinctCount && textCount>bestTextCount)
+    ){
+      bestScore=score;
+      bestIndex=idx;
+      bestTextCount=textCount;
+      bestDistinctCount=distinctCount;
+    }
+  }
+  if(bestIndex>-1) return bestIndex;
+  for(let idx=0; idx<limit; idx++){
+    const row=sheetData[idx];
+    if(!Array.isArray(row)) continue;
+    const headers=row.map(value=>{
+      if(value==null) return '';
+      return String(value).trim();
+    }).filter(Boolean);
+    const distinctCount=new Set(headers.map(h=>h.toLowerCase())).size;
+    if(distinctCount>=3){
+      return idx;
+    }
+  }
+  return 1;
 }
 async function handleLocalFile(e){
   const f = e.target.files && e.target.files[0];
@@ -3213,7 +3285,8 @@ async function parseExcel(buf){
     defval:null,
     dense:true
   });
-  await buildStateFromSheetData(sheetData,{headerRowIndex:1});
+  const headerRowIndex=detectHeaderRowIndex(sheetData);
+  await buildStateFromSheetData(sheetData,{headerRowIndex});
 }
 
 async function buildStateFromSheetData(sheetData, options={}){
