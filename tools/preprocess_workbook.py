@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preprocess Excel workbooks or CSV exports into JSON for faster loading.
+"""Preprocess Excel workbooks into JSON for faster loading.
 
 This script uses pandas/numpy to parse the workbook once and exports the raw
 sheet data in the same layout that the front-end expects. The JSON can then be
@@ -24,7 +24,7 @@ except ImportError as exc:  # pragma: no cover - handled at runtime
         "pandas and numpy are required. Install them via 'pip install pandas numpy openpyxl'."
     ) from exc
 
-DEFAULT_HEADER_ROW_INDEX = 1
+HEADER_ROW_INDEX = 1
 TOKEN_GROUPS: Dict[str, Sequence[str]] = {
     "date": ("date", "day", "reportingdate"),
     "store": ("store", "lo", "market", "site", "locale", "country", "account"),
@@ -50,11 +50,7 @@ TOKEN_GROUPS: Dict[str, Sequence[str]] = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "workbook",
-        type=Path,
-        help="Path to the dataset (Excel workbook or CSV export)",
-    )
+    parser.add_argument("workbook", type=Path, help="Path to the Excel workbook")
     parser.add_argument(
         "--output",
         type=Path,
@@ -64,10 +60,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--sheet",
         default=None,
-        help=(
-            "Optional sheet name for Excel workbooks. When omitted the most relevant sheet "
-            "is picked automatically."
-        ),
+        help="Optional sheet name. When omitted the most relevant sheet is picked automatically.",
     )
     parser.add_argument(
         "--indent",
@@ -148,12 +141,9 @@ def pick_sheet(sheets: Dict[str, pd.DataFrame], preferred: str | None) -> str:
     best_name = None
     best_score = -1
     for name, df in sheets.items():
-        if df.shape[0] <= DEFAULT_HEADER_ROW_INDEX:
+        if df.shape[0] <= HEADER_ROW_INDEX:
             continue
-        headers = [
-            str(v or "").strip()
-            for v in df.iloc[DEFAULT_HEADER_ROW_INDEX].tolist()
-        ]
+        headers = [str(v or "").strip() for v in df.iloc[HEADER_ROW_INDEX].tolist()]
         score = score_headers(headers)
         if score > best_score:
             best_name = name
@@ -163,18 +153,16 @@ def pick_sheet(sheets: Dict[str, pd.DataFrame], preferred: str | None) -> str:
     return best_name
 
 
-def build_output(
-    sheet: pd.DataFrame, source_name: str, sheet_name: str, header_row_index: int
-) -> Dict[str, object]:
+def build_output(sheet: pd.DataFrame, source_name: str, sheet_name: str) -> Dict[str, object]:
     sheet = sheet.copy()
-    header_row = sheet.iloc[header_row_index].tolist()
+    header_row = sheet.iloc[HEADER_ROW_INDEX].tolist()
     header_row = [to_python_value(v) for v in header_row]
     header_row = trim_trailing(header_row)
     target_width = len(header_row)
     if target_width == 0:
         raise ValueError("Header row appears to be empty")
-    relevant = sheet.iloc[: header_row_index + 1]
-    remaining = sheet.iloc[header_row_index + 1 :]
+    relevant = sheet.iloc[: HEADER_ROW_INDEX + 1]
+    remaining = sheet.iloc[HEADER_ROW_INDEX + 1 :]
     rows = dataframe_to_rows(relevant)
     rows.extend(dataframe_to_rows(remaining))
     normalised_rows: List[List[object]] = []
@@ -186,31 +174,10 @@ def build_output(
     return {
         "source": source_name,
         "sheet_name": sheet_name,
-        "header_row_index": header_row_index,
+        "header_row_index": HEADER_ROW_INDEX,
         "generated_at": dt.datetime.utcnow().replace(tzinfo=dt.timezone.utc).isoformat(),
         "sheet_data": normalised_rows,
     }
-
-
-def load_sheet(
-    workbook_path: Path, preferred_sheet: str | None
-) -> tuple[str, pd.DataFrame, int]:
-    suffix = workbook_path.suffix.lower()
-    if suffix == ".csv":
-        if preferred_sheet is not None:
-            raise SystemExit("--sheet cannot be used when loading CSV files")
-        df = pd.read_csv(workbook_path, header=None, dtype=object)
-        sheet_name = workbook_path.stem or "dataset"
-        return sheet_name, df, 0
-    sheets = pd.read_excel(
-        workbook_path,
-        sheet_name=None,
-        header=None,
-        engine="openpyxl",
-        dtype=object,
-    )
-    sheet_name = pick_sheet(sheets, preferred_sheet)
-    return sheet_name, sheets[sheet_name], DEFAULT_HEADER_ROW_INDEX
 
 
 def main() -> None:
@@ -219,8 +186,16 @@ def main() -> None:
     if not workbook_path.exists():
         raise SystemExit(f"Workbook not found: {workbook_path}")
 
-    sheet_name, sheet_df, header_row_index = load_sheet(workbook_path, args.sheet)
-    payload = build_output(sheet_df, workbook_path.name, sheet_name, header_row_index)
+    sheets = pd.read_excel(
+        workbook_path,
+        sheet_name=None,
+        header=None,
+        engine="openpyxl",
+        dtype=object,
+    )
+    sheet_name = pick_sheet(sheets, args.sheet)
+    sheet_df = sheets[sheet_name]
+    payload = build_output(sheet_df, workbook_path.name, sheet_name)
 
     if args.output is None:
         output_dir = workbook_path.parent / "preprocessed"
