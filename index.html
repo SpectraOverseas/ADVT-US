@@ -151,6 +151,8 @@ body.has-data #tipPill{display:none !important}
 .kpi .label{font-weight:700;color:var(--muted);font-size:12.5px}
 .kpi .value{font-size:20px;font-weight:700;letter-spacing:.1px}
 .kpi.small .value{font-size:20px}
+.kpi.is-na .value{color:var(--muted)}
+.kpi.is-na .kpi-spark{display:none}
 
 
 /* Pivot table */
@@ -2165,6 +2167,7 @@ const copyFeedbackTimers=new WeakMap();
 const filterHighlightTimers=new WeakMap();
 const PIVOT_LABEL_COLLATOR=new Intl.Collator(undefined,{sensitivity:'base'});
 let lastKpiSeries=null;
+let lastKpiAvailability=null;
 let pivotLayoutFrame=null;
 let skuSyncing=false;
 if(el.tabs?.list){ el.tabs.buttons = Array.from(el.tabs.list.querySelectorAll('[data-tab]')); }
@@ -2194,7 +2197,7 @@ const FILTER_BACKFILL_CHUNK_SIZE=3;
 let filterBackfillToken=0;
 const pivotFilterPopupState={slot:'', options:[], filtered:[], dimension:null, button:null, displayName:'', search:'', mode:'dimension', dateTab:'months'};
 const DEFAULT_PREPROCESSED_DATA=[
-  'preprocessed/search_terms.json'
+  'preprocessed/advertised_products.json'
 ];
 const DEFAULT_WORKBOOKS=[
   'Products Advertised Product.xlsx'
@@ -2593,7 +2596,7 @@ document.addEventListener('DOMContentLoaded', () => {
   boot();
   window.addEventListener('resize', debounce(()=>{
     schedulePivotLayout();
-    if(lastKpiSeries) updateKpiSparks(lastKpiSeries);
+    if(lastKpiSeries) updateKpiSparks(lastKpiSeries,lastKpiAvailability);
   },180));
 });
 
@@ -2987,7 +2990,17 @@ function showLoading(on, options={}){
   if(!active) updateLoadingProgress();
 }
 
-function resetKpis(){ Object.values(el.kpi||{}).forEach(node=>{ if(node) node.textContent='—'; }); lastKpiSeries=null; updateKpiSparks(null); }
+function resetKpis(){
+  Object.values(el.kpi||{}).forEach(node=>{
+    if(!node) return;
+    node.textContent='—';
+    const card=node.closest?.('.kpi');
+    if(card) card.classList.remove('is-na');
+  });
+  lastKpiSeries=null;
+  lastKpiAvailability=null;
+  updateKpiSparks(null,null);
+}
 
 function setHasData(has){
   state.hasData=!!has;
@@ -3005,7 +3018,7 @@ function setHasData(has){
     if(el.tabs?.bar) el.tabs.bar.hidden=false;
     if(el.tipPill) el.tipPill.hidden=true;
     if(lastKpiSeries){
-      const redraw=()=>updateKpiSparks(lastKpiSeries);
+      const redraw=()=>updateKpiSparks(lastKpiSeries,lastKpiAvailability);
       if(typeof requestAnimationFrame==='function'){ requestAnimationFrame(redraw); }
       else redraw();
     }
@@ -3263,7 +3276,7 @@ async function buildStateFromSheetData(sheetData, options={}){
     try{ state.sql.db.close(); }catch(_){ }
   }
   const db=new SQL.Database();
-  const tableName='search_terms';
+  const tableName='advertised_products';
   const columnDefs=columnInfo.map(info=>`"${info.sqlName}" ${info.type}`);
   db.exec(`CREATE TABLE "${tableName}" (${columnDefs.join(',')});`);
   const placeholders=columnInfo.map(()=>'?').join(',');
@@ -4076,11 +4089,23 @@ function updateAllFilterOptions(excludeRoot, options={}){
 /* ===== KPIs ===== */
 function computeKPIs(context){
   const table=state.sql?.table;
-  if(!table) return {I:0,C:0,R:0,S:0,ctr:NaN,acos:NaN,roas:NaN,avgcpc:NaN};
   const imprInfo=getSqlInfoForStateKey('impressions');
   const clicksInfo=getSqlInfoForStateKey('clicks');
   const revenueInfo=getSqlInfoForStateKey('revenue');
   const spendInfo=getSqlInfoForStateKey('spend');
+  const availability={
+    impressions:!!imprInfo,
+    clicks:!!clicksInfo,
+    revenue:!!revenueInfo,
+    spend:!!spendInfo
+  };
+  availability.acos = availability.spend && availability.revenue;
+  availability.ctr = availability.clicks && availability.impressions;
+  availability.roas = availability.spend && availability.revenue;
+  availability.avgcpc = availability.spend && availability.clicks;
+  if(!table){
+    return {I:0,C:0,R:0,S:0,ctr:NaN,acos:NaN,roas:NaN,avgcpc:NaN,availability};
+  }
   const parts=[
     imprInfo?`SUM(COALESCE("${imprInfo.sqlName}",0)) AS impressions`:'0 AS impressions',
     clicksInfo?`SUM(COALESCE("${clicksInfo.sqlName}",0)) AS clicks`:'0 AS clicks',
@@ -4097,7 +4122,7 @@ function computeKPIs(context){
   const acos = R>0 ? S/R : (S>0 ? Infinity : NaN);
   const roas = S>0 ? R/S : NaN;
   const avgcpc = C>0 ? S/C : NaN;
-  return {I,C,R,S,ctr,acos,roas,avgcpc};
+  return {I,C,R,S,ctr,acos,roas,avgcpc,availability};
 }
 function buildKpiSeries(context){
   const series={spend:[], revenue:[], acos:[], clicks:[], impressions:[], ctr:[], roas:[], avgcpc:[]};
@@ -4137,17 +4162,45 @@ function buildKpiSeries(context){
   });
   return series;
 }
-function renderKPIs(x, series){
-  el.kpi.spend.textContent   = fmt.money0(x.S);
-  el.kpi.revenue.textContent = fmt.money0(x.R);
-  el.kpi.acos.textContent    = isFinite(x.acos) ? (x.acos*100).toFixed(2)+'%' : '—';
-  el.kpi.clicks.textContent  = fmt.int(x.C);
-  el.kpi.impr.textContent    = fmt.int(x.I);
-  el.kpi.ctr.textContent     = isFinite(x.ctr) ? (x.ctr*100).toFixed(2)+'%' : '—';
-  el.kpi.roas.textContent    = isFinite(x.roas) ? x.roas.toFixed(2)+'x' : '—';
-  el.kpi.avgcpc.textContent  = isFinite(x.avgcpc) ? fmt.money(x.avgcpc) : '—';
+function renderKPIs(result, series){
+  const data=result||{};
+  const baseAvail=data.availability||{};
+  const availability={
+    spend:!!baseAvail.spend,
+    revenue:!!baseAvail.revenue,
+    clicks:!!baseAvail.clicks,
+    impressions:!!baseAvail.impressions,
+    acos:!!baseAvail.acos,
+    ctr:!!baseAvail.ctr,
+    roas:!!baseAvail.roas,
+    avgcpc:!!baseAvail.avgcpc
+  };
+  const setValue=(key, available, value, formatter)=>{
+    const node=el.kpi?.[key];
+    if(!node) return;
+    const card=node.closest?.('.kpi');
+    if(card) card.classList.toggle('is-na', !available);
+    if(!available){
+      node.textContent='N/A';
+      return;
+    }
+    try{
+      node.textContent=formatter(value);
+    }catch(_){
+      node.textContent='—';
+    }
+  };
+  setValue('spend', availability.spend, data.S, v=>fmt.money0(v));
+  setValue('revenue', availability.revenue, data.R, v=>fmt.money0(v));
+  setValue('acos', availability.acos, data.acos, v=>isFinite(v) ? (v*100).toFixed(2)+'%' : '—');
+  setValue('clicks', availability.clicks, data.C, v=>fmt.int(v));
+  setValue('impressions', availability.impressions, data.I, v=>fmt.int(v));
+  setValue('ctr', availability.ctr, data.ctr, v=>isFinite(v) ? (v*100).toFixed(2)+'%' : '—');
+  setValue('roas', availability.roas, data.roas, v=>isFinite(v) ? v.toFixed(2)+'x' : '—');
+  setValue('avgcpc', availability.avgcpc, data.avgcpc, v=>isFinite(v) ? fmt.money(v) : '—');
   lastKpiSeries = series || null;
-  updateKpiSparks(series);
+  lastKpiAvailability = availability;
+  updateKpiSparks(series, availability);
 }
 function ensureKpiSparklines(){
   if(!el.kpis) return;
@@ -4226,13 +4279,14 @@ function drawKpiSpark(meta, values){
   ctx.lineTo(points[points.length-1].x, points[points.length-1].y);
   ctx.stroke();
 }
-function updateKpiSparks(series){
+function updateKpiSparks(series, availability){
   ensureKpiSparklines();
   const metrics=['spend','revenue','acos','clicks','impressions','ctr','roas','avgcpc'];
   metrics.forEach(key=>{
     const meta=kpiSparkCache.get(key);
     if(!meta) return;
-    const values=series && Array.isArray(series[key]) ? series[key] : [];
+    const isAvailable = !availability ? true : !!availability[key];
+    const values=(isAvailable && series && Array.isArray(series[key])) ? series[key] : [];
     drawKpiSpark(meta, values);
   });
 }
@@ -5142,11 +5196,13 @@ function renderAll(){
     const columnName=columnDef?.name || fallback;
     const columnKey=columnDef ? normalize(columnDef.name) : null;
     const opts=options||{};
-    target.dimension = columnKey ? {stateKey:column, columnKey, caseInsensitive:!!opts.caseInsensitive} : null;
-    const hasMetrics = spendInfo && salesInfo && columnKey;
+    const dimensionAvailable=!!columnKey;
+    const metricsAvailable=!!(spendInfo && salesInfo);
+    const canRender=dimensionAvailable && metricsAvailable;
+    target.dimension = canRender ? {stateKey:column, columnKey, caseInsensitive:!!opts.caseInsensitive} : null;
     const pivotFilter = getPivotFilterValues(slot);
-    const agg = hasMetrics ? buildAggSql(context, columnKey, spendInfo, salesInfo, {...opts, pivotFilter}) : null;
-    const rendered = renderPivotCard(target, columnName, agg, !!columnKey);
+    const agg = canRender ? buildAggSql(context, columnKey, spendInfo, salesInfo, {...opts, pivotFilter}) : null;
+    const rendered = renderPivotCard(target, columnName, agg, canRender);
     if(rendered) activeSlots.add(slot);
     return rendered;
   });
