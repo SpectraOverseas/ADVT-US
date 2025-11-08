@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Preprocess a large Excel workbook into partitioned JSON slices for the dashboard.
+"""Preprocess a large workbook or CSV export into partitioned JSON slices for the dashboard.
 
 The dashboard is hosted on GitHub Pages, therefore we cannot rely on any
 server-side querying.  This script prepares the workbook so that the frontend
@@ -34,10 +34,14 @@ ISO_DATE_FORMATS = ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%m/%d/%Y")
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("workbook", type=Path, help="Path to the Excel workbook")
+    parser.add_argument(
+        "workbook",
+        type=Path,
+        help="Path to the dataset (Excel workbook or CSV file)",
+    )
     parser.add_argument(
         "--sheet",
-        help="Optional sheet name. When omitted, the first sheet is used.",
+        help="Optional sheet name (Excel workbooks only). When omitted, the first sheet is used.",
     )
     parser.add_argument(
         "--out",
@@ -48,13 +52,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--filters",
         nargs="*",
-        default=["date", "category", "store", "targetingType", "asin"],
+        default=["Date", "Store", "Retailer", "Targeting Type", "Advertised ASIN"],
         help="Columns that can be used as filters on the dashboard.",
     )
     parser.add_argument(
         "--partition",
         nargs="*",
-        default=["date:month"],
+        default=["Date:month"],
         help=(
             "Columns used to partition the dataset. You can suffix a column with "
             "':month' or ':year' to bucket by that period (e.g. date:month)."
@@ -80,7 +84,13 @@ def ensure_output_directory(path: Path) -> None:
 
 
 def read_workbook(path: Path, sheet: str | None) -> pd.DataFrame:
-    df = pd.read_excel(path, sheet_name=sheet, engine="openpyxl")
+    suffix = path.suffix.lower()
+    if suffix == ".csv":
+        if sheet is not None:
+            raise SystemExit("--sheet cannot be used when loading CSV files")
+        df = pd.read_csv(path)
+    else:
+        df = pd.read_excel(path, sheet_name=sheet, engine="openpyxl")
     df = df.dropna(axis=0, how="all")
     df = df.rename(columns=lambda c: str(c).strip())
     df = df.replace({"": pd.NA})

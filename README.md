@@ -11,11 +11,13 @@ dashboards.
    ```bash
    pip install pandas numpy openpyxl
    ```
-2. Run the preprocessing script against your workbook:
+2. Run the preprocessing script against your dataset:
    ```bash
-   python tools/preprocess_workbook.py "Products Search Term.xlsx"
+   python tools/preprocess_workbook.py "Products Advertised Product.csv"
    ```
-   The command creates `preprocessed/Products Search Term.json` by default.
+   The command creates `preprocessed/Products Advertised Product.json` by default.
+   (When processing CSV files, omit the `--sheet` option because the export does
+   not contain worksheets.)
 3. Copy the generated JSON next to `index.html` (or serve it from the same
    directory). On the next load the UI will automatically pick up the JSON file
    before falling back to the XLSX workbook.
@@ -26,13 +28,13 @@ You can pass a custom output path or select a specific sheet using the
 
 ## Partitioned export for GitHub Pages
 
-When the workbook contains tens of thousands of rows you can generate
+When the dataset contains tens of thousands of rows you can generate
 filter-aware data slices that the static site can load on demand:
 
 ```bash
-python tools/preprocess_dashboard.py "Products Search Term.xlsx" \
-  --out data --filters date store category targetingType asin \
-  --partition date:month store
+python tools/preprocess_dashboard.py "Products Advertised Product.csv" \
+  --out data --filters Date Store Retailer "Targeting Type" "Advertised ASIN" \
+  --partition Date:month Store
 ```
 
 This creates a ``data/`` folder with ``index.json`` (metadata, filter values,
