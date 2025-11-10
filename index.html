@@ -3306,9 +3306,32 @@ function setHasData(has){
 /* ===== Excel parsing (headers row auto-detected) ===== */
 function findIndexByTokens(headers, tokens){
   const HX=headers.map(h=>String(h||'').toLowerCase().replace(/[^a-z0-9]+/g,''));
-  for(const t of tokens){ const i=HX.indexOf(t); if(i>-1) return i; }
-  for(let i=0;i<HX.length;i++){ const h=HX[i]; if(tokens.some(t=>h.includes(t))) return i; }
-  return -1;
+  const searchTokens=(Array.isArray(tokens)?tokens:[])
+    .map(t=>String(t||'').toLowerCase().replace(/[^a-z0-9]+/g,''))
+    .filter(Boolean);
+  if(!searchTokens.length) return -1;
+  for(const token of searchTokens){
+    const idx=HX.indexOf(token);
+    if(idx>-1) return idx;
+  }
+  let bestIndex=-1;
+  let bestScore=0;
+  for(let i=0;i<HX.length;i++){
+    const header=HX[i];
+    if(!header) continue;
+    for(const token of searchTokens){
+      const pos=header.indexOf(token);
+      if(pos===-1) continue;
+      let score=token.length/Math.max(header.length,1);
+      if(pos===0) score+=0.15;
+      if(pos+token.length===header.length) score+=0.35;
+      if(score>bestScore){
+        bestScore=score;
+        bestIndex=i;
+      }
+    }
+  }
+  return bestScore>0?bestIndex:-1;
 }
 const HEADER_ROW_SCORE_GROUPS=(
   [
