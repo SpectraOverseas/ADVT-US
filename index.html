@@ -1918,7 +1918,36 @@ const parseDMY=(s)=>{ if(!s) return null; const m=String(s).match(/^(\d{2})[-/](
 const toInputDate=d=>!(d instanceof Date)?"":`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
 const parseInputDate=s=>{ if(!s) return null; const m=String(s).match(/^(\d{4})-(\d{2})-(\d{2})$/); if(!m) return null; const d=new Date(+m[1], +m[2]-1, +m[3]); return isNaN(+d)?null:d; };
 const cloneDate=d=> (d instanceof Date) ? new Date(d.getTime()) : null;
-function parseNumber(v){ if(v==null || v==="") return 0; if(typeof v==='number' && isFinite(v)) return v; let s=String(v).trim(); if(/^\(.*\)$/.test(s)) s='-'+s.slice(1,-1); if(/%$/.test(s)){ const num=parseFloat(s.replace(/[%\s,]/g,'')); return isFinite(num)?num/100:0; } s=s.replace(/[$€£₹¥₩]/g,'').replace(/,/g,'').replace(/[^\d.\-]/g,'').trim(); const num=parseFloat(s); return isFinite(num)?num:0; }
+function parseNumber(v){
+  if(v==null || v==="") return 0;
+  if(typeof v==='number' && isFinite(v)) return v;
+  let s=String(v).trim();
+  if(!s) return 0;
+  let negative=false;
+  if(/^\(.*\)$/.test(s)){
+    s=s.slice(1,-1);
+    negative=true;
+  }
+  let isPercent=false;
+  if(/%$/.test(s)){
+    isPercent=true;
+    s=s.replace(/%+$/,'');
+  }
+  s=s.replace(/[$€£₹¥₩]/g,'');
+  s=s.replace(/\s+/g,'');
+  s=s.replace(/,/g,'');
+  if(negative && !/^[-]/.test(s)){
+    s='-'+s;
+  }
+  let num=Number(s);
+  if(!Number.isFinite(num)){
+    const match=s.match(/[+\-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+\-]?\d+)?/);
+    num=match?Number(match[0]):NaN;
+  }
+  if(!Number.isFinite(num)) num=0;
+  if(isPercent) num/=100;
+  return num;
+}
 function clampPanelRight(panel){ panel.style.left='0'; panel.style.right='auto'; const rect=panel.getBoundingClientRect(), vw=document.documentElement.clientWidth; if(rect.right>vw-10){ panel.style.left='auto'; panel.style.right='0'; }}
 
 function hideCustomRangePanel(){
