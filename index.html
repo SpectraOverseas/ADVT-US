@@ -3652,8 +3652,23 @@ async function buildStateFromSheetData(sheetData, options={}){
           const parsed=XLSX?.SSF?.parse_date_code ? XLSX.SSF.parse_date_code(rawValue) : null;
           dateVal=(parsed&&parsed.y)?new Date(parsed.y,parsed.m-1,parsed.d):null;
         }else if(typeof rawValue==='string' && rawValue){
-          const parsed=parseInputDate(rawValue) || (isNaN(+new Date(rawValue))?null:new Date(rawValue));
-          dateVal=parsed instanceof Date?parsed:null;
+          const trimmed=rawValue.trim();
+          if(trimmed){
+            const numericText=trimmed.replace(/,/g,'');
+            if(/^[-+]?\d+(?:\.\d+)?$/.test(numericText)){
+              const asNumber=Number(numericText);
+              if(Number.isFinite(asNumber)){
+                const parsed=XLSX?.SSF?.parse_date_code ? XLSX.SSF.parse_date_code(asNumber) : null;
+                if(parsed && parsed.y){
+                  dateVal=new Date(parsed.y,parsed.m-1,parsed.d);
+                }
+              }
+            }
+            if(!dateVal){
+              const parsed=parseInputDate(trimmed) || (isNaN(+new Date(trimmed))?null:new Date(trimmed));
+              dateVal=parsed instanceof Date?parsed:null;
+            }
+          }
         }
         v=dateVal instanceof Date?toInputDate(dateVal):null;
       }else if(numericIdx.has(i)){
