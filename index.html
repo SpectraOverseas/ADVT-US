@@ -2413,8 +2413,8 @@ let filterBackfillToken=0;
 const pivotFilterPopupState={slot:'', options:[], filtered:[], dimension:null, button:null, displayName:'', search:'', mode:'dimension', dateTab:'months'};
 const DEFAULT_PREPROCESSED_DATA=[];
 const DEFAULT_WORKBOOKS=[
-  'Products Campaign.xlsx',
-  'Products Search Term.xlsx'
+  'Products Search Term.xlsx',
+  'Products Campaign.xlsx'
 ];
 const ASIN_SKU_WORKBOOK='ASINwise SKU.xlsx';
 const ADVERTISED_PRODUCTS_WORKBOOK=ASIN_SKU_WORKBOOK;
@@ -3470,6 +3470,7 @@ async function loadWorkbookBuffer(buf, options={}){
     }
   }
   setHasData(true);
+  applyDefaultFiltersForDataset(options?.dataset||null);
 }
 
 async function fetchArrayBufferFromUrl(file){
@@ -3769,6 +3770,39 @@ async function buildStateFromSheetData(sheetData, options={}){
   if(Array.isArray(remainingKeys) && remainingKeys.length){
     scheduleDeferredFilterBuild(remainingKeys, filterToken);
   }
+}
+
+function applyDefaultFiltersForDataset(datasetInfo){
+  if(!state.hasData) return false;
+  const info=datasetInfo || state.dataset || {};
+  const file=(info.file||'').toLowerCase();
+  const label=(info.label||'').toLowerCase();
+  const customerTypeLabel=(state.columns?.customerType?.name||'').toLowerCase();
+  const termLabel=(state.columns?.term?.name||'').toLowerCase();
+  const looksLikeSearchTerms =
+    file.includes('search term') ||
+    label.includes('search term') ||
+    (customerTypeLabel.includes('customer search term') && termLabel.includes('search term'));
+  if(!looksLikeSearchTerms) return false;
+
+  const applySelection=(key, values)=>{
+    const root=el.dd?.[key];
+    const col=state.columns?.[key];
+    if(!root || !col || col.aliasOf) return false;
+    return setFilterSelections(root, values, true);
+  };
+
+  let changed=false;
+  if(applySelection('customerType',['ST'])) changed=true;
+  if(applySelection('tsub',['Keyword'])) changed=true;
+
+  if(changed){
+    updateAllFilterOptions(null);
+    resetConversionPaging();
+    renderAll();
+    updateResetButtonVisibility();
+  }
+  return changed;
 }
 
 function buildSqlIndexes(){
