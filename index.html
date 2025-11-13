@@ -279,7 +279,11 @@ body.has-data #tipPill{display:none !important}
 .pivot-table tbody td{padding:8px 12px;border-bottom:1px solid var(--border);vertical-align:middle}
 .pivot-table.has-grand-total tbody tr:last-child th,.pivot-table.has-grand-total tbody tr:last-child td{border-bottom:0}
 .pivot-table tbody tr:hover{background:var(--chip)}
-.pivot-table td.pivot-num{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.pivot-table td.pivot-num,
+.pivot-table td.pivot-int,
+.pivot-table td.pivot-pct,
+.pivot-table td.pivot-roas{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
+.pivot-table td.pivot-pct,.pivot-table td.pivot-roas{white-space:nowrap}
 .pivot-table td.pivot-sku{text-align:left;white-space:normal;word-break:break-word}
 .pivot-table tfoot th,.pivot-table tfoot td{padding:12px;border:0;font-weight:800;background:var(--panel);position:sticky;bottom:0;z-index:2;border-top:3px double var(--border-strong);box-shadow:none}
 .pivot-table tfoot th{text-align:left}
@@ -2374,7 +2378,7 @@ async function onDatasetMenuClick(event){
   }
 }
 const TAB_ORDER=['overview','overall','campaignPortfolio','targeting'];
-const PIVOT_SORT_KEYS=new Set(['label','sku','spend','sales','acos']);
+const PIVOT_SORT_KEYS=new Set(['label','sku','spend','sales','clicks','impressions','ctr','roas','acos']);
 
 const kpiSparkCache=new Map();
 const copyFeedbackTimers=new WeakMap();
@@ -2819,7 +2823,7 @@ function updateConversionNav(target, agg){
   if(!target.nav) return;
   const page=agg?.page;
   const total=Number.isFinite(agg?.total)?agg.total:0;
-  const count=Array.isArray(agg?.labels)?agg.labels.length:0;
+  const count=Array.isArray(agg?.rows)?agg.rows.length:(Array.isArray(agg?.visibleRows)?agg.visibleRows.length:0);
   if(target.navLabel){
     if(total && count){
       const start=Number.isFinite(page?.start)?page.start:0;
@@ -3652,6 +3656,11 @@ async function buildStateFromSheetData(sheetData, options={}){
     clicks:     findIndexByTokens(headers,['clicks']),
     revenue:    findIndexByTokens(headers,['sales','revenue','totalsales','orderedrevenue','attributedsales']),
     spend:      findIndexByTokens(headers,['spend','adspend','cost','advertisingcost']),
+    orders:     findIndexByTokens(headers,['orders','totalorders','#orders','7daytotalorders']),
+    ctr:        findIndexByTokens(headers,['clickthru','ctr','clickthrough']),
+    acos:       findIndexByTokens(headers,['acos','advertisingcostofsales']),
+    roas:       findIndexByTokens(headers,['roas','returnonadvertisingspend']),
+    cpc:        findIndexByTokens(headers,['cpc','costperclick']),
     category:   findIndexByTokens(headers,['category','producttype','cat']),
     ttype:      findIndexByTokens(headers,['targetingtype','adtype','type']),
     tsub:       findIndexByTokens(headers,['targetingsubtype','matchtype','subtype']),
@@ -3669,7 +3678,17 @@ async function buildStateFromSheetData(sheetData, options={}){
   if(mapCols.store && !mapCols.lo) mapCols.lo = {...mapCols.store, aliasOf:'store'}; // fallback
   state.columns=mapCols;
   if(mapCols.targetingAsin) ensureAsinSkuMap();
-  const numericIdx=new Set([mapCols.impressions?.idx,mapCols.clicks?.idx,mapCols.revenue?.idx,mapCols.spend?.idx].filter(idx=>Number.isInteger(idx)));
+  const numericIdx=new Set([
+    mapCols.impressions?.idx,
+    mapCols.clicks?.idx,
+    mapCols.revenue?.idx,
+    mapCols.spend?.idx,
+    mapCols.orders?.idx,
+    mapCols.ctr?.idx,
+    mapCols.acos?.idx,
+    mapCols.roas?.idx,
+    mapCols.cpc?.idx
+  ].filter(idx=>Number.isInteger(idx)));
   const usedNames=new Set();
   const columnInfo=headers.map((header,idx)=>{
     const normalized=normalize(header);
@@ -4545,30 +4564,55 @@ function updateAllFilterOptions(excludeRoot, options={}){
 }
 
 /* ===== KPIs ===== */
-function computeKPIs(context){
+function getMetricColumns(){
+  return {
+    spend:getSqlInfoForStateKey('spend'),
+    sales:getSqlInfoForStateKey('revenue'),
+    clicks:getSqlInfoForStateKey('clicks'),
+    impressions:getSqlInfoForStateKey('impressions'),
+    orders:getSqlInfoForStateKey('orders')
+  };
+}
+
+function summarizeMetricsFromConditions(conditions){
   const table=state.sql?.table;
-  if(!table) return {I:0,C:0,R:0,S:0,ctr:NaN,acos:NaN,roas:NaN,avgcpc:NaN};
-  const imprInfo=getSqlInfoForStateKey('impressions');
-  const clicksInfo=getSqlInfoForStateKey('clicks');
-  const revenueInfo=getSqlInfoForStateKey('revenue');
-  const spendInfo=getSqlInfoForStateKey('spend');
+  const metrics=getMetricColumns();
+  if(!table || !metrics.spend || !metrics.sales){
+    return {
+      totalSpend:0,
+      totalSales:0,
+      totalClicks:0,
+      totalImpressions:0,
+      totalOrders:0,
+      acos:NaN,
+      ctr:NaN,
+      roas:NaN,
+      avgCpc:NaN
+    };
+  }
   const parts=[
-    imprInfo?`SUM(COALESCE("${imprInfo.sqlName}",0)) AS impressions`:'0 AS impressions',
-    clicksInfo?`SUM(COALESCE("${clicksInfo.sqlName}",0)) AS clicks`:'0 AS clicks',
-    revenueInfo?`SUM(COALESCE("${revenueInfo.sqlName}",0)) AS revenue`:'0 AS revenue',
-    spendInfo?`SUM(COALESCE("${spendInfo.sqlName}",0)) AS spend`:'0 AS spend'
+    metrics.impressions?`SUM(COALESCE("${metrics.impressions.sqlName}",0)) AS impressions`:'0 AS impressions',
+    metrics.clicks?`SUM(COALESCE("${metrics.clicks.sqlName}",0)) AS clicks`:'0 AS clicks',
+    `SUM(COALESCE("${metrics.sales.sqlName}",0)) AS revenue`,
+    `SUM(COALESCE("${metrics.spend.sqlName}",0)) AS spend`,
+    metrics.orders?`SUM(COALESCE("${metrics.orders.sqlName}",0)) AS orders`:'0 AS orders'
   ];
-  const {sql,params}=combineWhere(context.conditions);
+  const {sql,params}=combineWhere(Array.isArray(conditions)?conditions:[]);
   const row=sqlQueryAll(`SELECT ${parts.join(', ')} FROM "${table}" ${sql}`, params)[0] || {};
-  const I=Number(row.impressions)||0;
-  const C=Number(row.clicks)||0;
-  const R=Number(row.revenue)||0;
-  const S=Number(row.spend)||0;
-  const ctr = I>0 ? C/I : NaN;
-  const acos = R>0 ? S/R : (S>0 ? Infinity : NaN);
-  const roas = S>0 ? R/S : NaN;
-  const avgcpc = C>0 ? S/C : NaN;
-  return {I,C,R,S,ctr,acos,roas,avgcpc};
+  const totalImpressions=Number(row.impressions)||0;
+  const totalClicks=Number(row.clicks)||0;
+  const totalSales=Number(row.revenue)||0;
+  const totalSpend=Number(row.spend)||0;
+  const totalOrders=Number(row.orders)||0;
+  const acos = totalSales>0 ? totalSpend/totalSales : (totalSpend>0 ? Infinity : NaN);
+  const ctr = totalImpressions>0 ? totalClicks/totalImpressions : NaN;
+  const roas = totalSpend>0 ? totalSales/totalSpend : NaN;
+  const avgCpc = totalClicks>0 ? totalSpend/totalClicks : NaN;
+  return {totalSpend,totalSales,totalClicks,totalImpressions,totalOrders,acos,ctr,roas,avgCpc};
+}
+
+function computeKPIs(context){
+  return summarizeMetricsFromConditions(context?.conditions||[]);
 }
 function buildKpiSeries(context){
   const series={spend:[], revenue:[], acos:[], clicks:[], impressions:[], ctr:[], roas:[], avgcpc:[]};
@@ -4608,17 +4652,32 @@ function buildKpiSeries(context){
   });
   return series;
 }
-function renderKPIs(x, series){
-  el.kpi.spend.textContent   = fmt.money0(x.S);
-  el.kpi.revenue.textContent = fmt.money0(x.R);
-  el.kpi.acos.textContent    = isFinite(x.acos) ? (x.acos*100).toFixed(2)+'%' : '—';
-  el.kpi.clicks.textContent  = fmt.int(x.C);
-  el.kpi.impr.textContent    = fmt.int(x.I);
-  el.kpi.ctr.textContent     = isFinite(x.ctr) ? (x.ctr*100).toFixed(2)+'%' : '—';
-  el.kpi.roas.textContent    = isFinite(x.roas) ? x.roas.toFixed(2)+'x' : '—';
-  el.kpi.avgcpc.textContent  = isFinite(x.avgcpc) ? fmt.money(x.avgcpc) : '—';
+function renderKPIs(metrics, series){
+  const data=metrics||{};
+  el.kpi.spend.textContent   = fmt.money0(data.totalSpend);
+  el.kpi.revenue.textContent = fmt.money0(data.totalSales);
+  el.kpi.acos.textContent    = Number.isFinite(data.acos) ? (data.acos*100).toFixed(2)+'%' : (data.acos===Infinity?'∞%':'—');
+  el.kpi.clicks.textContent  = fmt.int(data.totalClicks);
+  el.kpi.impr.textContent    = fmt.int(data.totalImpressions);
+  el.kpi.ctr.textContent     = Number.isFinite(data.ctr) ? (data.ctr*100).toFixed(2)+'%' : (data.ctr===Infinity?'∞%':'—');
+  el.kpi.roas.textContent    = Number.isFinite(data.roas) ? data.roas.toFixed(2)+'x' : (data.roas===Infinity?'∞x':'—');
+  el.kpi.avgcpc.textContent  = Number.isFinite(data.avgCpc) ? fmt.money(data.avgCpc) : '—';
   lastKpiSeries = series || null;
   updateKpiSparks(series);
+}
+
+function logSummaryMetrics(summary){
+  if(!summary || typeof console==='undefined' || !console.info) return;
+  const payload={
+    spend:summary.totalSpend||0,
+    sales:summary.totalSales||0,
+    clicks:summary.totalClicks||0,
+    impressions:summary.totalImpressions||0,
+    acos:Number.isFinite(summary.acos)?summary.acos:null,
+    ctr:Number.isFinite(summary.ctr)?summary.ctr:null,
+    roas:Number.isFinite(summary.roas)?summary.roas:null
+  };
+  console.info('[Campaign Summary]', payload);
 }
 function ensureKpiSparklines(){
   if(!el.kpis) return;
@@ -4710,22 +4769,46 @@ function updateKpiSparks(series){
 
 function finalizeAgg(map, limit, options={}){
   if(!(map instanceof Map) || map.size===0){
-    return {labels:[], spend:[], sales:[], acos:[], total:0, truncated:false, totalSpend:0, totalSales:0, limit:null, page:{start:0,count:0,size:0,current:0,totalPages:0,hasPrev:false,hasNext:false,total:0}};
+    return {
+      labels:[],
+      spend:[],
+      sales:[],
+      acos:[],
+      rows:[],
+      allRows:[],
+      total:0,
+      truncated:false,
+      totals:{spend:0,sales:0,clicks:0,impressions:0,orders:0,acos:NaN,ctr:NaN,roas:NaN},
+      limit:null,
+      page:{start:0,count:0,size:0,current:0,totalPages:0,hasPrev:false,hasNext:false,total:0}
+    };
   }
   const caseInsensitive=!!options.caseInsensitive;
   const entries=[];
   let totalSpend=0;
   let totalSales=0;
+  let totalClicks=0;
+  let totalImpressions=0;
+  let totalOrders=0;
   map.forEach((value,labelKey)=>{
     const spend=+value.spend||0;
     const sales=+value.sales||0;
+    const clicks=+value.clicks||0;
+    const impressions=+value.impressions||0;
+    const orders=+value.orders||0;
     const acos=sales>0 ? spend/sales : (spend>0 ? Infinity : NaN);
+    const ctr=impressions>0 ? clicks/impressions : NaN;
+    const roas=spend>0 ? sales/spend : (sales>0 ? Infinity : NaN);
     const displayLabel = Object.prototype.hasOwnProperty.call(value,'displayLabel') ? value.displayLabel : labelKey;
     const rawValue = Object.prototype.hasOwnProperty.call(value,'rawValue') ? value.rawValue : displayLabel;
     const matchKey = Object.prototype.hasOwnProperty.call(value,'matchKey') ? value.matchKey : (caseInsensitive ? String(labelKey) : null);
-    entries.push({label:String(displayLabel), rawValue, spend, sales, acos, matchKey});
+    const entry={label:String(displayLabel), rawValue, spend, sales, clicks, impressions, orders, acos, ctr, roas, matchKey};
+    entries.push(entry);
     totalSpend+=spend;
     totalSales+=sales;
+    totalClicks+=clicks;
+    totalImpressions+=impressions;
+    totalOrders+=orders;
   });
   const sortValue=v=>{
     if(Number.isNaN(v)) return Number.NEGATIVE_INFINITY;
@@ -4746,12 +4829,17 @@ function finalizeAgg(map, limit, options={}){
     rawValue:entry.rawValue,
     spend:entry.spend,
     sales:entry.sales,
+    clicks:entry.clicks,
+    impressions:entry.impressions,
+    orders:entry.orders,
     acos:entry.acos,
+    ctr:entry.ctr,
+    roas:entry.roas,
     matchKey:entry.matchKey
   }));
   const maxRows=(Number.isFinite(limit)&&limit>0)?Math.floor(limit):null;
   let output=entries;
-  let pageMeta={start:0,count:entries.length,size:maxRows||entries.length,current:0,totalPages:maxRows?Math.ceil(entries.length/(maxRows||1)): (entries.length?1:0),hasPrev:false,hasNext:false,total:entries.length};
+  let pageMeta={start:0,count:entries.length,size:maxRows||entries.length,current:0,totalPages:maxRows?Math.ceil(entries.length/(maxRows||1)):(entries.length?1:0),hasPrev:false,hasNext:false,total:entries.length};
   if(maxRows){
     const totalPages=entries.length ? Math.ceil(entries.length/maxRows) : 0;
     let pageIndex=Number.isFinite(options.page)?Math.max(0, Math.floor(options.page)):0;
@@ -4776,6 +4864,16 @@ function finalizeAgg(map, limit, options={}){
     };
   }
   const truncated=!!(maxRows && entries.length>output.length);
+  const totals={
+    spend:totalSpend,
+    sales:totalSales,
+    clicks:totalClicks,
+    impressions:totalImpressions,
+    orders:totalOrders,
+    acos:totalSales>0 ? totalSpend/totalSales : (totalSpend>0 ? Infinity : NaN),
+    ctr:totalImpressions>0 ? totalClicks/totalImpressions : NaN,
+    roas:totalSpend>0 ? totalSales/totalSpend : (totalSales>0 ? Infinity : NaN)
+  };
   return {
     labels:output.map(e=>e.label),
     rawValues:output.map(e=>e.rawValue),
@@ -4783,54 +4881,108 @@ function finalizeAgg(map, limit, options={}){
     spend:output.map(e=>e.spend),
     sales:output.map(e=>e.sales),
     acos:output.map(e=>e.acos),
+    rows:output.map(e=>({...e})),
+    allRows,
     total:entries.length,
     truncated,
-    totalSpend,
-    totalSales,
+    totals,
     limit:maxRows,
-    page:pageMeta,
-    allRows
+    page:pageMeta
   };
 }
 
-function buildAggSql(context, columnKey, spendInfo, salesInfo, options={}){
+function buildAggSql(context, columnKey, metricInfo, options={}){
   const table=state.sql?.table;
-  if(!table) return {labels:[], spend:[], sales:[], acos:[]};
+  if(!table) return {rows:[], totals:{spend:0,sales:0,clicks:0,impressions:0,orders:0,acos:NaN,ctr:NaN,roas:NaN}};
   const columnInfo=getSqlColumn(columnKey);
-  if(!columnInfo || !spendInfo || !salesInfo) return {labels:[], spend:[], sales:[], acos:[]};
+  const spendInfo=metricInfo?.spend;
+  const salesInfo=metricInfo?.sales;
+  if(!columnInfo || !spendInfo || !salesInfo){
+    return {rows:[], totals:{spend:0,sales:0,clicks:0,impressions:0,orders:0,acos:NaN,ctr:NaN,roas:NaN}};
+  }
+  const clicksInfo=metricInfo?.clicks || null;
+  const imprInfo=metricInfo?.impressions || null;
+  const ordersInfo=metricInfo?.orders || null;
   const caseInsensitive=!!options.caseInsensitive;
   const labelExpr=`"${columnInfo.sqlName}"`;
   const groupExpr=caseInsensitive?`LOWER(${labelExpr})`:labelExpr;
   const displayExpr=caseInsensitive?`MAX(${labelExpr})`:labelExpr;
-  const extraCond={sql:`TRIM(${labelExpr}) <> ''`};
-  const extras=[extraCond];
+  const extras=[];
   const pivotFilter=options?.pivotFilter;
   if(pivotFilter) appendDateFilterExtras(extras, pivotFilter);
   const {sql,params}=combineWhere(context.conditions, extras);
-  const query=`SELECT ${groupExpr} AS group_key, ${displayExpr} AS display_label, SUM(COALESCE("${spendInfo.sqlName}",0)) AS total_spend, SUM(COALESCE("${salesInfo.sqlName}",0)) AS total_sales FROM "${table}" ${sql} GROUP BY ${groupExpr} HAVING total_spend <> 0 OR total_sales <> 0`;
+  const selectParts=[
+    `${groupExpr} AS group_key`,
+    `${displayExpr} AS display_label`,
+    `SUM(COALESCE("${spendInfo.sqlName}",0)) AS total_spend`,
+    `SUM(COALESCE("${salesInfo.sqlName}",0)) AS total_sales`
+  ];
+  if(clicksInfo) selectParts.push(`SUM(COALESCE("${clicksInfo.sqlName}",0)) AS total_clicks`);
+  else selectParts.push('0 AS total_clicks');
+  if(imprInfo) selectParts.push(`SUM(COALESCE("${imprInfo.sqlName}",0)) AS total_impressions`);
+  else selectParts.push('0 AS total_impressions');
+  if(ordersInfo) selectParts.push(`SUM(COALESCE("${ordersInfo.sqlName}",0)) AS total_orders`);
+  else selectParts.push('0 AS total_orders');
+  const havingParts=[
+    'total_spend <> 0',
+    'total_sales <> 0',
+    'total_clicks <> 0',
+    'total_impressions <> 0',
+    'total_orders <> 0'
+  ];
+  const query=`SELECT ${selectParts.join(', ')} FROM "${table}" ${sql} GROUP BY ${groupExpr} HAVING ${havingParts.join(' OR ')}`;
   const rows=sqlQueryAll(query, params);
   const map=new Map();
   rows.forEach(row=>{
-    const display=row.display_label==null?'':String(row.display_label);
-    const trimmed=display.trim();
-    if(!trimmed) return;
+    const rawValue=row.display_label==null?'':String(row.display_label);
+    const display=rawValue.trim()||'(blank)';
     const spend=Number(row.total_spend)||0;
     const sales=Number(row.total_sales)||0;
+    const clicks=Number(row.total_clicks)||0;
+    const impressions=Number(row.total_impressions)||0;
+    const orders=Number(row.total_orders)||0;
+    const payload={spend,sales,clicks,impressions,orders,rawValue,displayLabel:display};
     if(caseInsensitive){
       const key=String(row.group_key||'');
       const entry=map.get(key);
       if(entry){
         entry.spend+=spend;
         entry.sales+=sales;
+        entry.clicks+=clicks;
+        entry.impressions+=impressions;
+        entry.orders+=orders;
         if(!entry.displayLabel && display) entry.displayLabel=display;
       }else{
-        map.set(key,{spend,sales,rawValue:display,displayLabel:display,matchKey:key});
+        map.set(key,{...payload,matchKey:key});
       }
     }else{
-      map.set(display,{spend,sales,rawValue:display,displayLabel:display});
+      map.set(rawValue,{...payload});
     }
   });
-  return finalizeAgg(map, undefined, {caseInsensitive});
+  const totals=summarizeMetricsFromConditions(context.conditions);
+  const result=finalizeAgg(map, undefined, {caseInsensitive});
+  const grandTotals=result?.totals||{};
+  if(grandTotals && totals){
+    grandTotals.spend=totals.totalSpend;
+    grandTotals.sales=totals.totalSales;
+    grandTotals.clicks=totals.totalClicks;
+    grandTotals.impressions=totals.totalImpressions;
+    grandTotals.orders=totals.totalOrders;
+    grandTotals.acos=totals.acos;
+    grandTotals.ctr=totals.ctr;
+    grandTotals.roas=totals.roas;
+  }
+  result.grandTotal={
+    spend:totals.totalSpend,
+    sales:totals.totalSales,
+    clicks:totals.totalClicks,
+    impressions:totals.totalImpressions,
+    orders:totals.totalOrders,
+    acos:totals.acos,
+    ctr:totals.ctr,
+    roas:totals.roas
+  };
+  return result;
 }
 
 function updatePivotFootSpace(table){
@@ -4932,7 +5084,7 @@ function renderPivotTable(table){
   const head=buildPivotHead(safeColumn, sort.key, sort.dir, showSkuColumn);
 
   if(!baseRows.length){
-    const colspan=showSkuColumn?6:5;
+    const colspan=showSkuColumn?10:9;
     table.innerHTML = head + `<tbody><tr><td colspan="${colspan}" class="pivot-empty">No ${safeColumn} data for current filters.</td></tr></tbody>`;
     table.classList.remove('has-grand-total');
     updatePivotFootSpace(table);
@@ -4949,7 +5101,7 @@ function renderPivotTable(table){
   const visibleRows=baseRows.slice(pageStart, Math.min(baseRows.length, pageStart+pageCount));
 
   if(!visibleRows.length){
-    const colspan=showSkuColumn?6:5;
+    const colspan=showSkuColumn?10:9;
     table.innerHTML = head + `<tbody><tr><td colspan="${colspan}" class="pivot-empty">No ${safeColumn} rows on this page.</td></tr></tbody>`;
     table.classList.remove('has-grand-total');
     updatePivotFootSpace(table);
@@ -4966,15 +5118,23 @@ function renderPivotTable(table){
     const skuCell=showSkuColumn?buildPivotSkuCell(row):'';
     const spendCell=buildPivotMoneyCell(row.spend);
     const salesCell=buildPivotMoneyCell(row.sales);
+    const clicksCell=buildPivotIntCell(row.clicks);
+    const imprCell=buildPivotIntCell(row.impressions);
+    const ctrCell=buildPivotPercentCell(row.ctr);
+    const roasCell=buildPivotRoasCell(row.roas);
     const acosCells=buildPivotAcosCells(row.acos, barScale, false);
-    return `<tr>${labelCell}${skuCell}${spendCell}${salesCell}${acosCells}</tr>`;
+    return `<tr>${labelCell}${skuCell}${spendCell}${salesCell}${clicksCell}${imprCell}${ctrCell}${roasCell}${acosCells}</tr>`;
   }).join('');
 
   const totalSpend=Number(data.totals?.spend)||0;
   const totalSales=Number(data.totals?.sales)||0;
-  const totalAcos=typeof data.totals?.acos==='number'?data.totals.acos:NaN;
+  const totalClicks=Number(data.totals?.clicks)||0;
+  const totalImpr=Number(data.totals?.impressions)||0;
+  const totalCtr=typeof data.totals?.ctr==='number'?data.totals.ctr:(totalImpr>0?totalClicks/totalImpr:NaN);
+  const totalRoas=typeof data.totals?.roas==='number'?data.totals.roas:(totalSpend>0?totalSales/totalSpend:(totalSales>0?Infinity:NaN));
+  const totalAcos=typeof data.totals?.acos==='number'?data.totals.acos:(totalSales>0?totalSpend/totalSales:(totalSpend>0?Infinity:NaN));
   const totalSkuCell=showSkuColumn?'<td class="pivot-sku"></td>':'';
-  const totalRow=`<tr class="pivot-total"><th scope="row">Grand Total</th>${totalSkuCell}${buildPivotMoneyCell(totalSpend)}${buildPivotMoneyCell(totalSales)}${buildPivotAcosCells(totalAcos, barScale, true)}</tr>`;
+  const totalRow=`<tr class="pivot-total"><th scope="row">Grand Total</th>${totalSkuCell}${buildPivotMoneyCell(totalSpend)}${buildPivotMoneyCell(totalSales)}${buildPivotIntCell(totalClicks)}${buildPivotIntCell(totalImpr)}${buildPivotPercentCell(totalCtr)}${buildPivotRoasCell(totalRoas)}${buildPivotAcosCells(totalAcos, barScale, true)}</tr>`;
 
   table.innerHTML = head + `<tbody>${bodyRows}</tbody><tfoot>${totalRow}</tfoot>`;
   table.classList.add('has-grand-total');
@@ -4992,6 +5152,10 @@ function buildPivotHead(columnLabel, activeKey, activeDir, showSkuColumn){
   cells.push(
     buildPivotHeadCell('spend', 'Spend', '', activeKey, activeDir),
     buildPivotHeadCell('sales', 'Sales', '', activeKey, activeDir),
+    buildPivotHeadCell('clicks', 'Clicks', '', activeKey, activeDir),
+    buildPivotHeadCell('impressions', 'Impr.', '', activeKey, activeDir),
+    buildPivotHeadCell('ctr', 'CTR', '', activeKey, activeDir),
+    buildPivotHeadCell('roas', 'ROAS', '', activeKey, activeDir),
     buildPivotHeadCell('acos', 'ACOS', 'pivot-acos', activeKey, activeDir),
     '<th scope="col" class="pivot-acos-bar" aria-hidden="true"></th>'
   );
@@ -5041,6 +5205,22 @@ function buildPivotMoneyCell(value){
   return `<td class="pivot-num">${escapeHtml(fmt.money0(value))}</td>`;
 }
 
+function buildPivotIntCell(value){
+  return `<td class="pivot-int">${escapeHtml(fmt.int(value||0))}</td>`;
+}
+
+function buildPivotPercentCell(value){
+  if(value===Infinity) return '<td class="pivot-pct">∞%</td>';
+  if(!Number.isFinite(value)) return '<td class="pivot-pct">—</td>';
+  return `<td class="pivot-pct">${(value*100).toFixed(2)}%</td>`;
+}
+
+function buildPivotRoasCell(value){
+  if(value===Infinity) return '<td class="pivot-roas">∞x</td>';
+  if(!Number.isFinite(value)) return '<td class="pivot-roas">—</td>';
+  return `<td class="pivot-roas">${value.toFixed(2)}x</td>`;
+}
+
 function buildPivotSkuCell(row){
   let text='';
   let values=[];
@@ -5072,6 +5252,10 @@ function buildPivotSkuCell(row){
 }
 
 function buildPivotAcosCells(value, barScale, isTotal){
+  if(value===Infinity){
+    const cls=`pivot-amount${isTotal?' pivot-amount-total':''}`;
+    return `<td class="pivot-acos"><span class="${cls}">∞%</span></td><td class="pivot-acos-bar pivot-acos-empty"></td>`;
+  }
   if(!Number.isFinite(value)){
     return '<td class="pivot-acos pivot-acos-empty">—</td><td class="pivot-acos-bar pivot-acos-empty"></td>';
   }
@@ -5190,46 +5374,50 @@ function renderPivotCard(target, columnLabel, agg, hasColumn){
   else{
     const fallbackTitle=target.card.querySelector('.chart-title');
     if(fallbackTitle) fallbackTitle.textContent = `${displayName} Performance Pivot`;
-
   }
 
-  const labels = Array.isArray(agg?.labels) ? agg.labels : [];
-  const spendVals = Array.isArray(agg?.spend) ? agg.spend.map(v=>+v||0) : labels.map(()=>0);
-  const salesVals = Array.isArray(agg?.sales) ? agg.sales.map(v=>+v||0) : labels.map(()=>0);
-
-  const parseAcosValue=(value)=>{
-    if(typeof value==='number') return value;
-    const str=String(value??'').trim();
-    if(!str) return NaN;
-    const cleaned=str.replace(/acos/ig,'').trim();
-    if(!/[0-9]/.test(cleaned)) return NaN;
-    const num=parseNumber(cleaned);
-    return Number.isFinite(num)?num:NaN;
+  const normalizeRow=row=>{
+    const spend=+row?.spend||0;
+    const sales=+row?.sales||0;
+    const clicks=+row?.clicks||0;
+    const impressions=+row?.impressions||0;
+    const orders=+row?.orders||0;
+    const acosRaw=row?.acos;
+    const ctrRaw=row?.ctr;
+    const roasRaw=row?.roas;
+    const label=row?.label==null?'':String(row.label);
+    const rawValue=Object.prototype.hasOwnProperty.call(row||{},'rawValue')?row.rawValue:row?.label??'';
+    const acos=typeof acosRaw==='number'?acosRaw:(sales>0?spend/sales:(spend>0?Infinity:NaN));
+    const ctr=typeof ctrRaw==='number'?ctrRaw:(impressions>0?clicks/impressions:NaN);
+    const roas=typeof roasRaw==='number'?roasRaw:(spend>0?sales/spend:(sales>0?Infinity:NaN));
+    return {label,rawValue,spend,sales,clicks,impressions,orders,acos,ctr,roas,matchKey:row?.matchKey??null};
   };
 
-  const acosVals = (Array.isArray(agg?.acos) && agg.acos.length===labels.length)
-    ? agg.acos.map(parseAcosValue)
-    : labels.map((_,i)=>{
-        const sales=salesVals[i];
-        const spend=spendVals[i];
-        return sales>0 ? spend/sales : (spend>0 ? Infinity : NaN);
-      });
-
-  const totalSpend = Number.isFinite(agg?.totalSpend) ? agg.totalSpend : spendVals.reduce((sum,val)=>sum+val,0);
-  const totalSales = Number.isFinite(agg?.totalSales) ? agg.totalSales : salesVals.reduce((sum,val)=>sum+val,0);
-  const totalAcos = totalSales>0 ? totalSpend/totalSales : NaN;
-
-  const totalCount=Number.isFinite(agg?.total)?agg.total:labels.length;
+  const rows = Array.isArray(agg?.rows) ? agg.rows.map(normalizeRow) : [];
+  const allRows = Array.isArray(agg?.allRows) ? agg.allRows.map(normalizeRow) : rows.map(r=>({...r}));
+  const totalsRaw = agg?.grandTotal || agg?.totals || {};
+  const totals={
+    spend:+totalsRaw.spend||0,
+    sales:+totalsRaw.sales||0,
+    clicks:+totalsRaw.clicks||0,
+    impressions:+totalsRaw.impressions||0,
+    orders:+totalsRaw.orders||0,
+    acos: typeof totalsRaw.acos==='number'?totalsRaw.acos:((+totalsRaw.sales||0)>0?(+totalsRaw.spend||0)/(+totalsRaw.sales||0):((+totalsRaw.spend||0)>0?Infinity:NaN)),
+    ctr: typeof totalsRaw.ctr==='number'?totalsRaw.ctr:((+totalsRaw.impressions||0)>0?(+totalsRaw.clicks||0)/(+totalsRaw.impressions||0):NaN),
+    roas: typeof totalsRaw.roas==='number'?totalsRaw.roas:((+totalsRaw.spend||0)>0?(+totalsRaw.sales||0)/(+totalsRaw.spend||0):((+totalsRaw.sales||0)>0?Infinity:NaN))
+  };
   const limit=Number.isFinite(agg?.limit)?agg.limit:null;
+  const totalCount=Number.isFinite(agg?.total)?agg.total:allRows.length;
+  const pageMeta=agg?.page ? {...agg.page} : {start:0,count:rows.length,size:rows.length,current:0,totalPages:rows.length?1:0,hasPrev:false,hasNext:false,total:rows.length};
   let truncatedNote='';
-  if(labels.length && limit && totalCount>labels.length && agg?.page){
+  if(rows.length && limit && totalCount>rows.length && agg?.page){
     const start=Number.isFinite(agg.page.start)?agg.page.start:0;
     const from=Math.min(totalCount,start+1);
-    const to=Math.min(totalCount,start+labels.length);
+    const to=Math.min(totalCount,start+rows.length);
     truncatedNote=`Showing rows ${from.toLocaleString()}–${to.toLocaleString()} of ${totalCount.toLocaleString()} ${displayName} results. Totals include all filtered rows.`;
   }else if(agg?.truncated){
     const totalStr=totalCount.toLocaleString();
-    const limitStr=(limit||labels.length).toLocaleString();
+    const limitStr=(limit||rows.length).toLocaleString();
     truncatedNote=`Showing top ${limitStr} of ${totalStr} ${displayName} results. Totals include all filtered rows.`;
   }
   if(truncatedNote){
@@ -5238,33 +5426,11 @@ function renderPivotCard(target, columnLabel, agg, hasColumn){
     setPivotNote(target.card, '');
   }
 
-  const finiteAcos = acosVals.filter(Number.isFinite);
-  if(isFinite(totalAcos)) finiteAcos.push(totalAcos);
+  const finiteAcos = rows.map(row=>row.acos).filter(Number.isFinite);
+  if(Number.isFinite(totals.acos)) finiteAcos.push(totals.acos);
   const maxPct = finiteAcos.length ? Math.max(...finiteAcos)*100 : 0;
   const barMaxPct = Math.min(100, maxPct + 10);
   const barScale = barMaxPct > 0 ? barMaxPct : 100;
-
-  const rawVals = Array.isArray(agg?.rawValues) ? agg.rawValues : labels.map(()=>null);
-  const matchKeys = Array.isArray(agg?.matchKeys) ? agg.matchKeys : labels.map(()=>null);
-  const rowData = labels.map((label,i)=>({
-    label:String(label),
-    rawValue:rawVals[i],
-    spend:spendVals[i],
-    sales:salesVals[i],
-    acos:acosVals[i],
-    matchKey:matchKeys[i]
-  }));
-
-  const allRows = Array.isArray(agg?.allRows)
-    ? agg.allRows.map(row=>({
-        label:String(row?.label??''),
-        rawValue:Object.prototype.hasOwnProperty.call(row||{},'rawValue')?row.rawValue:row?.label??'',
-        spend:+row?.spend||0,
-        sales:+row?.sales||0,
-        acos:typeof row?.acos==='number'?row.acos:parseAcosValue(row?.acos),
-        matchKey:row?.matchKey??null
-      }))
-    : rowData.map(r=>({...r}));
 
   const slot=target.table?._pivotSlot || target.card?.dataset.pivotSlot || '';
   const showSkuColumn=slot==='targetingAsin';
@@ -5292,23 +5458,19 @@ function renderPivotCard(target, columnLabel, agg, hasColumn){
       const sortValue=list.length?list[0]:(text||'');
       row.skuSortKey=sortValue;
     };
-    rowData.forEach(annotateSku);
+    rows.forEach(annotateSku);
     if(Array.isArray(allRows)){
       allRows.forEach(annotateSku);
     }
   }
   if(slot) prunePivotFilter(slot, target.dimension, allRows);
 
-  const pageMeta = agg?.page
-    ? {...agg.page}
-    : {start:0,count:rowData.length,size:rowData.length,current:0,totalPages:rowData.length?1:0,hasPrev:false,hasNext:false,total:rowData.length};
-
   target.table._pivotData={
     displayName,
-    rows:allRows,
+    rows:rows,
     allRows,
-    visibleRows:rowData,
-    totals:{spend:totalSpend,sales:totalSales,acos:totalAcos},
+    visibleRows:rows,
+    totals,
     barScale,
     dimension: target.dimension || null,
     slot: target.table ? (target.table._pivotSlot || null) : null,
@@ -5324,6 +5486,77 @@ function renderPivotCard(target, columnLabel, agg, hasColumn){
 
   renderPivotTable(target.table);
   return true;
+}
+
+function getCampaignSummary(options={}){
+  const conditionsOption=Array.isArray(options?.conditions)?options.conditions:null;
+  const useFilters=options?.useFilters!==false;
+  let conditions;
+  if(conditionsOption){
+    conditions=conditionsOption;
+  }else if(useFilters){
+    const context=buildFilterContext(null);
+    conditions=context.conditions;
+  }else{
+    conditions=[];
+  }
+  return summarizeMetricsFromConditions(conditions);
+}
+
+function getCampaignPivot(groupKey, options={}){
+  if(!groupKey) throw new Error('groupKey is required');
+  const columnEntry=state.columns?.[groupKey];
+  if(!columnEntry || !columnEntry.name) throw new Error(`Unknown group key: ${groupKey}`);
+  const columnKey=normalize(columnEntry.name);
+  const metricInfo=getMetricColumns();
+  if(!metricInfo.spend || !metricInfo.sales) throw new Error('Required metric columns are not available');
+  const conditionsOption=Array.isArray(options?.conditions)?options.conditions:null;
+  const useFilters=options?.useFilters!==false;
+  let conditions;
+  if(conditionsOption){
+    conditions=conditionsOption;
+  }else if(useFilters){
+    const context=buildFilterContext(null);
+    conditions=context.conditions;
+  }else{
+    conditions=[];
+  }
+  const context={conditions};
+  const agg=buildAggSql(context, columnKey, metricInfo, options||{});
+  const rows=Array.isArray(agg?.allRows)?agg.allRows:[];
+  const normalizedRows=rows.map(row=>({
+    label:String(row?.label??''),
+    rawValue:Object.prototype.hasOwnProperty.call(row||{},'rawValue')?row.rawValue:row?.label??'',
+    spend:+row?.spend||0,
+    sales:+row?.sales||0,
+    clicks:+row?.clicks||0,
+    impressions:+row?.impressions||0,
+    orders:+row?.orders||0,
+    acos:typeof row?.acos==='number'?row.acos:NaN,
+    ctr:typeof row?.ctr==='number'?row.ctr:NaN,
+    roas:typeof row?.roas==='number'?row.roas:NaN
+  }));
+  const grandTotal=agg?.grandTotal || agg?.totals || {};
+  return {
+    rows:normalizedRows,
+    grandTotal:{
+      spend:+grandTotal.spend||0,
+      sales:+grandTotal.sales||0,
+      clicks:+grandTotal.clicks||0,
+      impressions:+grandTotal.impressions||0,
+      orders:+grandTotal.orders||0,
+      acos:typeof grandTotal.acos==='number'?grandTotal.acos:NaN,
+      ctr:typeof grandTotal.ctr==='number'?grandTotal.ctr:NaN,
+      roas:typeof grandTotal.roas==='number'?grandTotal.roas:NaN
+    }
+  };
+}
+
+if(typeof window!=='undefined'){
+  window.campaignAnalytics={
+    getSummary:getCampaignSummary,
+    getPivot:getCampaignPivot
+  };
 }
 
 function renderConversionPivots(context, spendInfo, salesInfo){
@@ -5594,11 +5827,17 @@ function updateAdvertisedProductsDisplay(){
 /* ===== render & CSV ===== */
 function renderAll(){
   const context=buildFilterContext(null);
+  const summary=computeKPIs(context);
   const series=buildKpiSeries(context);
-  renderKPIs(computeKPIs(context), series);
+  renderKPIs(summary, series);
+  logSummaryMetrics(summary);
 
   const spendInfo=getSqlInfoForStateKey('spend');
   const salesInfo=getSqlInfoForStateKey('revenue');
+  const clicksInfo=getSqlInfoForStateKey('clicks');
+  const imprInfo=getSqlInfoForStateKey('impressions');
+  const ordersInfo=getSqlInfoForStateKey('orders');
+  const metricInfo={spend:spendInfo,sales:salesInfo,clicks:clicksInfo,impressions:imprInfo,orders:ordersInfo};
   if(el.pivot?.section) el.pivot.section.dataset.mode = state.activeTab || 'overview';
 
   const activeSlots=new Set();
@@ -5614,9 +5853,9 @@ function renderAll(){
     const columnKey=columnDef ? normalize(columnDef.name) : null;
     const opts=options||{};
     target.dimension = columnKey ? {stateKey:column, columnKey, caseInsensitive:!!opts.caseInsensitive} : null;
-    const hasMetrics = spendInfo && salesInfo && columnKey;
+    const hasMetrics = metricInfo.spend && metricInfo.sales && columnKey;
     const pivotFilter = getPivotFilterValues(slot);
-    const agg = hasMetrics ? buildAggSql(context, columnKey, spendInfo, salesInfo, {...opts, pivotFilter}) : null;
+    const agg = hasMetrics ? buildAggSql(context, columnKey, metricInfo, {...opts, pivotFilter}) : null;
     const rendered = renderPivotCard(target, columnName, agg, !!columnKey);
     if(rendered) activeSlots.add(slot);
     return rendered;
