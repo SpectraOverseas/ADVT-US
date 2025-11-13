@@ -1923,6 +1923,12 @@ function parseNumber(v){
   if(typeof v==='number' && isFinite(v)) return v;
   let s=String(v).trim();
   if(!s) return 0;
+  const currencyCodePattern=/^(?:USD|CAD|AUD|NZD|EUR|GBP|INR|JPY|CNY|RMB|HKD|SGD|CHF|SEK|NOK|DKK|ZAR|MXN|BRL|AED|SAR|QAR|OMR|KWD|US|CA|AU|NZ|HK|SG|CN)\s*/i;
+  if(currencyCodePattern.test(s)){
+    s=s.replace(currencyCodePattern,"");
+  }
+  s=s.replace(/(?:USD|CAD|AUD|NZD|EUR|GBP|INR|JPY|CNY|RMB|HKD|SGD|CHF|SEK|NOK|DKK|ZAR|MXN|BRL|AED|SAR|QAR|OMR|KWD|US|CA|AU|NZ|HK|SG|CN)\s*$/i,"");
+  s=s.replace(/(?:USD|CAD|AUD|NZD|EUR|GBP|INR|JPY|CNY|RMB|HKD|SGD|CHF|SEK|NOK|DKK|ZAR|MXN|BRL|AED|SAR|QAR|OMR|KWD|US|CA|AU|NZ|HK|SG|CN)\$/gi,"$");
   let negative=false;
   if(/^\(.*\)$/.test(s)){
     s=s.slice(1,-1);
