@@ -1386,7 +1386,7 @@ function renderPivotFilterPopup(){
     row.appendChild(left);
     const metric=document.createElement('span');
     metric.className='pivot-filter-option-metric';
-    metric.textContent=fmt.money0(opt.spend);
+    metric.textContent=fmt.money2(opt.spend);
     row.appendChild(metric);
     frag.appendChild(row);
   });
@@ -1898,6 +1898,7 @@ const fmt={
   pct:r=>isFinite(r)?(r*100).toLocaleString(undefined,{maximumFractionDigits:2})+'%':"—",
   money:n=>isFinite(n)?n.toLocaleString(undefined,{style:"currency",currency:"USD"}):"—",
   money0:n=>isFinite(n)?n.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:0,minimumFractionDigits:0}):"—",
+  money2:n=>isFinite(n)?n.toLocaleString(undefined,{style:"currency",currency:"USD",maximumFractionDigits:2,minimumFractionDigits:2}):"—",
   num0:n=>isFinite(n)?new Intl.NumberFormat(undefined,{maximumFractionDigits:0,minimumFractionDigits:0}).format(n):"—"
 };
 const MONTH_NAMES=["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -4609,8 +4610,8 @@ function buildKpiSeries(context){
   return series;
 }
 function renderKPIs(x, series){
-  el.kpi.spend.textContent   = fmt.money0(x.S);
-  el.kpi.revenue.textContent = fmt.money0(x.R);
+  el.kpi.spend.textContent   = fmt.money2(x.S);
+  el.kpi.revenue.textContent = fmt.money2(x.R);
   el.kpi.acos.textContent    = isFinite(x.acos) ? (x.acos*100).toFixed(2)+'%' : '—';
   el.kpi.clicks.textContent  = fmt.int(x.C);
   el.kpi.impr.textContent    = fmt.int(x.I);
@@ -5038,7 +5039,7 @@ function buildPivotHeadCell(key, title, extraClass, activeKey, activeDir){
 }
 
 function buildPivotMoneyCell(value){
-  return `<td class="pivot-num">${escapeHtml(fmt.money0(value))}</td>`;
+  return `<td class="pivot-num">${escapeHtml(fmt.money2(value))}</td>`;
 }
 
 function buildPivotSkuCell(row){
@@ -5078,7 +5079,7 @@ function buildPivotAcosCells(value, barScale, isTotal){
   const pct=value*100;
   const width=Math.max(0, Math.min(100, barScale ? (pct/barScale)*100 : 0));
   const cls=`pivot-amount${isTotal?' pivot-amount-total':''}`;
-  const valueCell=`<td class="pivot-acos"><span class="${cls}">${pct.toFixed(1)}%</span></td>`;
+  const valueCell=`<td class="pivot-acos"><span class="${cls}">${pct.toFixed(2)}%</span></td>`;
   const barCell=`<td class="pivot-acos-bar"><div class="pivot-bar"><div class="pivot-bar-fill acos" style="width:${width}%"></div></div></td>`;
   return valueCell+barCell;
 }
