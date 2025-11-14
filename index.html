@@ -434,11 +434,11 @@ body.has-data #tipPill{display:none !important}
 
 <main id="contentWrap">
   <div id="emptyState" class="empty-state" role="status">
-    📄 No Excel detected. Click <span id="emptyOpenLink" role="button" tabindex="0">Open XLSX</span> to load a file.
+    📊 Choose a dataset to get started. Open the menu above or click <span id="emptyOpenLink" role="button" tabindex="0">Open XLSX</span> to load your own file.
   </div>
 
   <div class="topline" id="topLine">
-    <div class="pill" id="tipPill" hidden>📄 No Excel detected. Click <b>Open XLSX</b> to load a file.</div>
+    <div class="pill" id="tipPill" hidden>📊 Choose a dataset from the menu or click <b>Open XLSX</b> to load a file.</div>
     <div class="topline-controls">
       <div class="pivot-tabs-bar" id="pivotTabsBar" hidden>
         <div id="pivotTabs" class="pivot-tabs" role="tablist" aria-label="Pivot views">
@@ -2352,6 +2352,19 @@ function toggleDatasetMenu(){
   else openDatasetMenu();
 }
 
+function promptInitialDatasetSelection(){
+  if(datasetPromptShown || state.hasData) return;
+  const menu=el.datasetMenu;
+  if(!menu?.list || !menu?.popup) return;
+  const firstOption=menu.list.querySelector('[data-dataset-id]');
+  if(!firstOption) return;
+  const opened=openDatasetMenu();
+  datasetPromptShown=true;
+  if(opened){
+    try{ firstOption.focus({preventScroll:true}); }catch(_){ }
+  }
+}
+
 function initDatasetMenu(){
   const menu=el.datasetMenu;
   if(!menu?.list) return;
@@ -2389,6 +2402,7 @@ function initDatasetMenu(){
     menu.btn.__datasetMenuBound=true;
   }
   updateDatasetMenuActive();
+  promptInitialDatasetSelection();
 }
 
 async function onDatasetMenuClick(event){
@@ -2468,9 +2482,8 @@ const ASIN_SKU_WORKBOOK='ASINwise SKU.xlsx';
 const ADVERTISED_PRODUCTS_WORKBOOK=ASIN_SKU_WORKBOOK;
 let asinSkuPromise=null;
 let advertisedProductsPromise=null;
-let defaultWorkbookPromise=null;
-let defaultWorkbookTimer=null;
 let loadingDepth=0;
+let datasetPromptShown=false;
 
 function formatDatasetLabelFromFile(file){
   if(!file) return '';
@@ -3335,24 +3348,7 @@ function boot(){
   showLoading(false,{force:true});
   el.tipPill.hidden=true;
   el.monthsWrap.hidden=true;
-
-  if(defaultWorkbookTimer){
-    clearTimeout(defaultWorkbookTimer);
-  }
-  defaultWorkbookTimer=setTimeout(()=>{
-    defaultWorkbookTimer=null;
-    if(!state.hasData) ensureDefaultWorkbook();
-  },1500);
-
-  attemptPreprocessedData()
-    .catch(err=>console.warn('Preprocessed data attempt failed:', err))
-    .finally(()=>{
-      if(defaultWorkbookTimer){
-        clearTimeout(defaultWorkbookTimer);
-        defaultWorkbookTimer=null;
-      }
-      if(!state.hasData) ensureDefaultWorkbook();
-    });
+  promptInitialDatasetSelection();
 }
 function showLoading(on, options={}){
   const force=!!options.force;
@@ -3394,6 +3390,7 @@ function setHasData(has){
       else redraw();
     }
   }else{
+    datasetPromptShown=false;
     filterBackfillToken+=1;
     if(el.topLine) el.topLine.style.display='none';
     if(el.kpis) el.kpis.hidden=true;
@@ -3437,6 +3434,7 @@ function setHasData(has){
     syncCustomRangeInputs();
     setActiveDataset(null);
     closeDatasetMenu(false);
+    promptInitialDatasetSelection();
   }
   updateMonthSummary();
   updateTabsUI();
@@ -3645,59 +3643,6 @@ async function loadPreprocessedDatasetFromUrl(file,label){
   return state.dataset;
 }
 
-async function attemptPreprocessedData(){
-  const list=Array.isArray(DEFAULT_PREPROCESSED_DATA)?DEFAULT_PREPROCESSED_DATA:[DEFAULT_PREPROCESSED_DATA];
-  const files=list.map(file=>typeof file==='string'?file.trim():'').filter(Boolean);
-  if(!files.length || state.hasData) return;
-  showLoading(true);
-  try{
-    for(const file of files){
-      if(state.hasData) return;
-      try{
-        await loadPreprocessedDatasetFromUrl(file);
-        return;
-      }catch(err){
-        console.warn(`Failed to load preprocessed data from ${file}:`, err);
-      }
-    }
-  }finally{
-    showLoading(false);
-  }
-}
-
-async function attemptDefaultWorkbook(){
-  const list=Array.isArray(DEFAULT_WORKBOOKS)?DEFAULT_WORKBOOKS:[DEFAULT_WORKBOOKS];
-  const files=list.map(file=>typeof file==='string'?file.trim():'').filter(Boolean);
-  if(!files.length || state.hasData) return;
-  showLoading(true);
-  try{
-    for(const file of files){
-      if(state.hasData) return;
-      try{
-        await loadWorkbookDatasetFromUrl(file);
-        if(state.hasData) return;
-        return;
-      }catch(err){
-        console.warn(`Default workbook could not be loaded from ${file}:`, err);
-      }
-    }
-    if(!state.hasData) setHasData(false);
-  }finally{
-    showLoading(false);
-  }
-}
-
-function ensureDefaultWorkbook(){
-  if(defaultWorkbookPromise){
-    return defaultWorkbookPromise;
-  }
-  if(defaultWorkbookTimer){
-    clearTimeout(defaultWorkbookTimer);
-    defaultWorkbookTimer=null;
-  }
-  defaultWorkbookPromise=attemptDefaultWorkbook().finally(()=>{ defaultWorkbookPromise=null; });
-  return defaultWorkbookPromise;
-}
 async function parseExcel(buf){
   const wb = XLSX.read(buf, { type:'array', cellDates:true, cellNF:true, cellText:false });
   let best=null,score=-1;
