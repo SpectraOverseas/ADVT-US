@@ -284,6 +284,7 @@ body.has-data #tipPill{display:none !important}
 .pivot-sort-indicator{font-size:10px;opacity:.75}
 .pivot-table thead th:first-child{text-align:left}
 .pivot-table thead th.pivot-sku{text-align:left}
+.pivot-table thead th.pivot-brand{text-align:left}
 .pivot-table thead th.pivot-acos{text-align:right}
 .pivot-table thead th.pivot-acos-bar{padding-left:0;text-align:left;width:90px}
 .pivot-table tbody th{padding:8px 12px;border-bottom:1px solid var(--border);text-align:left;font-weight:600;color:var(--text);white-space:normal;word-break:break-word;overflow-wrap:anywhere}
@@ -296,6 +297,7 @@ body.has-data #tipPill{display:none !important}
 .pivot-table tbody tr:hover{background:var(--chip)}
 .pivot-table td.pivot-num{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}
 .pivot-table td.pivot-sku{text-align:left;white-space:normal;word-break:break-word}
+.pivot-table td.pivot-brand{text-align:left;white-space:normal;word-break:break-word}
 .pivot-table tfoot th,.pivot-table tfoot td{padding:12px;border:0;font-weight:800;background:var(--panel);position:sticky;bottom:0;z-index:2;border-top:3px double var(--border-strong);box-shadow:none}
 .pivot-table tfoot th{text-align:left}
 .pivot-table tfoot td{text-align:right}
@@ -2246,6 +2248,7 @@ const state={
   customRange:{start:null,end:null,active:false},
   dateBounds:{min:null,max:null},
   asinSkuMap:new Map(),
+  asinBrandMap:new Map(),
   asinSkuLoaded:false,
   asinValueMap:new Map(),
   advertisedProducts:{rows:[],loaded:false,renderToken:0,lastSlot:null},
@@ -2413,7 +2416,7 @@ async function onDatasetMenuClick(event){
   }
 }
 const TAB_ORDER=['overview','overall','campaignPortfolio','targeting'];
-const PIVOT_SORT_KEYS=new Set(['label','sku','spend','sales','acos']);
+const PIVOT_SORT_KEYS=new Set(['label','sku','brand','spend','sales','acos']);
 
 const kpiSparkCache=new Map();
 const copyFeedbackTimers=new WeakMap();
@@ -2515,13 +2518,17 @@ function getBuiltinDatasetOptions(){
 
 function ensureAsinSkuMap(){
   if(state.asinSkuLoaded){
+    if(!(state.asinBrandMap instanceof Map)) state.asinBrandMap=new Map();
     return Promise.resolve(state.asinSkuMap instanceof Map ? state.asinSkuMap : new Map());
   }
   if(asinSkuPromise){
     return asinSkuPromise;
   }
-  asinSkuPromise=loadAsinSkuWorkbook().then(map=>{
-    state.asinSkuMap = map instanceof Map ? map : new Map();
+  asinSkuPromise=loadAsinSkuWorkbook().then(meta=>{
+    const skuMap = meta && meta.skuMap instanceof Map ? meta.skuMap : new Map();
+    const brandMap = meta && meta.brandMap instanceof Map ? meta.brandMap : new Map();
+    state.asinSkuMap = skuMap;
+    state.asinBrandMap = brandMap;
     state.asinSkuLoaded=true;
     if(state.hasData){
       renderAll();
@@ -2530,6 +2537,7 @@ function ensureAsinSkuMap(){
     return state.asinSkuMap;
   }).catch(()=>{
     state.asinSkuMap=new Map();
+    state.asinBrandMap=new Map();
     state.asinSkuLoaded=true;
     return state.asinSkuMap;
   });
@@ -2538,7 +2546,7 @@ function ensureAsinSkuMap(){
 
 async function loadAsinSkuWorkbook(){
   const file=ASIN_SKU_WORKBOOK && ASIN_SKU_WORKBOOK.trim();
-  if(!file) return new Map();
+  if(!file) return {skuMap:new Map(), brandMap:new Map()};
   try{
     let targetUrl;
     try{
@@ -2550,19 +2558,31 @@ async function loadAsinSkuWorkbook(){
     if(!response.ok && response.status!==0) throw new Error('ASIN SKU workbook not found');
     const buf=await response.arrayBuffer();
     const wb=XLSX.read(buf,{type:'array',cellDates:false,cellNF:false,cellText:false});
-    if(!wb.SheetNames || !wb.SheetNames.length) return new Map();
+    if(!wb.SheetNames || !wb.SheetNames.length) return {skuMap:new Map(), brandMap:new Map()};
+    let skuMap=null;
+    let brandMap=null;
     for(const sheetName of wb.SheetNames){
       const ws=wb.Sheets[sheetName];
       if(!ws) continue;
       const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:false,defval:''});
       if(!rows || rows.length<2) continue;
-      const map=buildAsinSkuMapFromRows(rows);
-      if(map) return map;
+      if(!skuMap){
+        const candidate=buildAsinSkuMapFromRows(rows);
+        if(candidate) skuMap=candidate;
+      }
+      if(!brandMap){
+        const brandCandidate=buildAsinBrandMapFromRows(rows);
+        if(brandCandidate) brandMap=brandCandidate;
+      }
+      if(skuMap && brandMap) break;
     }
-    return new Map();
+    return {
+      skuMap:skuMap||new Map(),
+      brandMap:brandMap||new Map()
+    };
   }catch(err){
     console.warn('ASIN SKU mapping load failed:', err);
-    return new Map();
+    return {skuMap:new Map(), brandMap:new Map()};
   }
 }
 
@@ -2581,6 +2601,15 @@ function lookupAsinSkus(value){
   if(!(map instanceof Map)) return null;
   const list=map.get(key);
   return Array.isArray(list) && list.length ? list : null;
+}
+
+function lookupAsinBrand(value){
+  const key=normalizeAsinKey(value);
+  if(!key) return '';
+  const map=state.asinBrandMap;
+  if(!(map instanceof Map)) return '';
+  const brand=map.get(key);
+  return brand==null?'':String(brand).trim();
 }
 
 function formatSkuEntries(entries){
@@ -2725,6 +2754,44 @@ function buildAsinSkuMapFromRows(rows){
     return collator.compare(aPlain,bPlain);
   }));
   return map;
+}
+
+function buildAsinBrandMapFromRows(rows){
+  if(!Array.isArray(rows) || !rows.length) return null;
+  const preferredHeaderIndex=rows.length>1?1:0;
+  let headerIndex=preferredHeaderIndex;
+  let headers=sanitizeRow(rows[headerIndex]||[]);
+  let asinIdx=findIndexByTokens(headers,['advertisedasin','asin']);
+  let brandIdx=findIndexByTokens(headers,['brand','brandname','brand name','store','seller']);
+  if(asinIdx<0 || brandIdx<0){
+    for(let i=0;i<Math.min(rows.length,6);i++){
+      const candidate=sanitizeRow(rows[i]);
+      const aIdx=findIndexByTokens(candidate,['advertisedasin','asin']);
+      const bIdx=findIndexByTokens(candidate,['brand','brandname','brand name','store','seller']);
+      if(aIdx>-1 && bIdx>-1){
+        headerIndex=i;
+        headers=candidate;
+        asinIdx=aIdx;
+        brandIdx=bIdx;
+        break;
+      }
+    }
+  }
+  if(asinIdx<0 || brandIdx<0) return null;
+  const map=new Map();
+  for(let i=headerIndex+1;i<rows.length;i++){
+    const row=Array.isArray(rows[i])?rows[i]:[];
+    const asin=String(row[asinIdx]??'').trim();
+    const brand=String(row[brandIdx]??'').trim();
+    if(!asin || !brand) continue;
+    const asinKey=normalizeAsinKey(asin);
+    if(!asinKey) continue;
+    const existing=map.get(asinKey);
+    if(!existing || String(existing).trim().length < brand.length){
+      map.set(asinKey, brand);
+    }
+  }
+  return map.size?map:null;
 }
 
 function buildAdvertisedProductsFromRows(rows){
@@ -4968,10 +5035,12 @@ function renderPivotTable(table){
   }
 
   const showSkuColumn=!!data.showSkuColumn;
-  const head=buildPivotHead(safeColumn, sort.key, sort.dir, showSkuColumn);
+  const showBrandColumn=!!data.showBrandColumn;
+  const head=buildPivotHead(safeColumn, sort.key, sort.dir, showSkuColumn, showBrandColumn);
+  const columnCount=5 + (showSkuColumn?1:0) + (showBrandColumn?1:0);
 
   if(!baseRows.length){
-    const colspan=showSkuColumn?6:5;
+    const colspan=columnCount;
     table.innerHTML = head + `<tbody><tr><td colspan="${colspan}" class="pivot-empty">No ${safeColumn} data for current filters.</td></tr></tbody>`;
     table.classList.remove('has-grand-total');
     updatePivotFootSpace(table);
@@ -4988,7 +5057,7 @@ function renderPivotTable(table){
   const visibleRows=baseRows.slice(pageStart, Math.min(baseRows.length, pageStart+pageCount));
 
   if(!visibleRows.length){
-    const colspan=showSkuColumn?6:5;
+    const colspan=columnCount;
     table.innerHTML = head + `<tbody><tr><td colspan="${colspan}" class="pivot-empty">No ${safeColumn} rows on this page.</td></tr></tbody>`;
     table.classList.remove('has-grand-total');
     updatePivotFootSpace(table);
@@ -5003,17 +5072,19 @@ function renderPivotTable(table){
   const bodyRows=visibleRows.map(row=>{
     const labelCell=buildPivotLabelCell(row, dimension, data);
     const skuCell=showSkuColumn?buildPivotSkuCell(row):'';
+    const brandCell=showBrandColumn?buildPivotBrandCell(row):'';
     const spendCell=buildPivotMoneyCell(row.spend);
     const salesCell=buildPivotMoneyCell(row.sales);
     const acosCells=buildPivotAcosCells(row.acos, barScale, false);
-    return `<tr>${labelCell}${skuCell}${spendCell}${salesCell}${acosCells}</tr>`;
+    return `<tr>${labelCell}${skuCell}${brandCell}${spendCell}${salesCell}${acosCells}</tr>`;
   }).join('');
 
   const totalSpend=Number(data.totals?.spend)||0;
   const totalSales=Number(data.totals?.sales)||0;
   const totalAcos=typeof data.totals?.acos==='number'?data.totals.acos:NaN;
   const totalSkuCell=showSkuColumn?'<td class="pivot-sku"></td>':'';
-  const totalRow=`<tr class="pivot-total"><th scope="row">Grand Total</th>${totalSkuCell}${buildPivotMoneyCell(totalSpend)}${buildPivotMoneyCell(totalSales)}${buildPivotAcosCells(totalAcos, barScale, true)}</tr>`;
+  const totalBrandCell=showBrandColumn?'<td class="pivot-brand"></td>':'';
+  const totalRow=`<tr class="pivot-total"><th scope="row">Grand Total</th>${totalSkuCell}${totalBrandCell}${buildPivotMoneyCell(totalSpend)}${buildPivotMoneyCell(totalSales)}${buildPivotAcosCells(totalAcos, barScale, true)}</tr>`;
 
   table.innerHTML = head + `<tbody>${bodyRows}</tbody><tfoot>${totalRow}</tfoot>`;
   table.classList.add('has-grand-total');
@@ -5021,12 +5092,15 @@ function renderPivotTable(table){
   schedulePivotLayout();
 }
 
-function buildPivotHead(columnLabel, activeKey, activeDir, showSkuColumn){
+function buildPivotHead(columnLabel, activeKey, activeDir, showSkuColumn, showBrandColumn){
   const cells=[
     buildPivotHeadCell('label', columnLabel, '', activeKey, activeDir)
   ];
   if(showSkuColumn){
     cells.push(buildPivotHeadCell('sku', 'SKU', 'pivot-sku', activeKey, activeDir));
+  }
+  if(showBrandColumn){
+    cells.push(buildPivotHeadCell('brand', 'Brand', 'pivot-brand', activeKey, activeDir));
   }
   cells.push(
     buildPivotHeadCell('spend', 'Spend', '', activeKey, activeDir),
@@ -5110,6 +5184,26 @@ function buildPivotSkuCell(row){
   return '<td class="pivot-sku">—</td>';
 }
 
+function buildPivotBrandCell(row){
+  let text='';
+  if(row && typeof row==='object'){
+    if(Object.prototype.hasOwnProperty.call(row,'brandText')){
+      const stored=row.brandText;
+      text=stored==null?'':String(stored).trim();
+    }
+    if(!text){
+      const rawValue=Object.prototype.hasOwnProperty.call(row,'rawValue') ? row.rawValue : row?.label;
+      const lookup=lookupAsinBrand(rawValue);
+      text=lookup?String(lookup).trim():'';
+      row.brandText=text;
+    }
+  }
+  if(text){
+    return `<td class="pivot-brand"><span class="pivot-label-text">${escapeHtml(text)}</span></td>`;
+  }
+  return '<td class="pivot-brand">—</td>';
+}
+
 function buildPivotAcosCells(value, barScale, isTotal){
   if(!Number.isFinite(value)){
     return '<td class="pivot-acos pivot-acos-empty">—</td><td class="pivot-acos-bar pivot-acos-empty"></td>';
@@ -5135,6 +5229,18 @@ function comparePivotRows(a,b,key,dir){
   if(key==='sku'){
     const aVal=String(a?.skuSortKey ?? a?.skuText ?? '').trim();
     const bVal=String(b?.skuSortKey ?? b?.skuText ?? '').trim();
+    const aEmpty=!aVal;
+    const bEmpty=!bVal;
+    if(aEmpty!==bEmpty){
+      return aEmpty ? 1 : -1;
+    }
+    const cmp=PIVOT_LABEL_COLLATOR.compare(aVal, bVal);
+    if(cmp!==0) return dir==='desc' ? -cmp : cmp;
+    return PIVOT_LABEL_COLLATOR.compare(String(a.label??''), String(b.label??''));
+  }
+  if(key==='brand'){
+    const aVal=String(a?.brandSortKey ?? a?.brandText ?? '').trim();
+    const bVal=String(b?.brandSortKey ?? b?.brandText ?? '').trim();
     const aEmpty=!aVal;
     const bEmpty=!bVal;
     if(aEmpty!==bEmpty){
@@ -5307,18 +5413,22 @@ function renderPivotCard(target, columnLabel, agg, hasColumn){
 
   const slot=target.table?._pivotSlot || target.card?.dataset.pivotSlot || '';
   const showSkuColumn=slot==='targetingAsin';
-  if(showSkuColumn && !state.asinSkuLoaded){
+  const showBrandColumn=slot==='conversionAsin';
+  if((showSkuColumn || showBrandColumn) && !state.asinSkuLoaded){
     ensureAsinSkuMap();
   }
-  if(showSkuColumn){
-    const asinValueMap = state.asinValueMap instanceof Map ? state.asinValueMap : (state.asinValueMap=new Map());
+  let asinValueMap=null;
+  if(showSkuColumn || showBrandColumn){
+    asinValueMap = state.asinValueMap instanceof Map ? state.asinValueMap : (state.asinValueMap=new Map());
     asinValueMap.clear();
+  }
+  if(showSkuColumn){
     const annotateSku=row=>{
       if(!row || typeof row!=='object') return;
       const rawValue=Object.prototype.hasOwnProperty.call(row,'rawValue') ? row.rawValue : row?.label;
       const asinValue=rawValue==null?'':String(rawValue);
       const asinKey=normalizeAsinKey(asinValue);
-      if(asinKey) asinValueMap.set(asinKey, asinValue);
+      if(asinKey && asinValueMap) asinValueMap.set(asinKey, asinValue);
       let text=typeof row.skuText==='string'?row.skuText.trim():'';
       let list=Array.isArray(row.skuList)?row.skuList.filter(v=>v!=null && v!=='').map(v=>String(v)) : [];
       if(!text || !list.length){
@@ -5334,6 +5444,30 @@ function renderPivotCard(target, columnLabel, agg, hasColumn){
     rowData.forEach(annotateSku);
     if(Array.isArray(allRows)){
       allRows.forEach(annotateSku);
+    }
+  }
+  if(showBrandColumn){
+    const annotateBrand=row=>{
+      if(!row || typeof row!=='object') return;
+      const rawValue=Object.prototype.hasOwnProperty.call(row,'rawValue') ? row.rawValue : row?.label;
+      const asinValue=rawValue==null?'':String(rawValue);
+      const asinKey=normalizeAsinKey(asinValue);
+      if(asinKey && asinValueMap && !asinValueMap.has(asinKey)){
+        asinValueMap.set(asinKey, asinValue);
+      }
+      let text=typeof row.brandText==='string'?row.brandText.trim():'';
+      if(!text){
+        const lookup=lookupAsinBrand(rawValue);
+        text=lookup?String(lookup).trim():'';
+        row.brandText=text;
+      }else{
+        row.brandText=text;
+      }
+      row.brandSortKey=text?text.toLowerCase():'';
+    };
+    rowData.forEach(annotateBrand);
+    if(Array.isArray(allRows)){
+      allRows.forEach(annotateBrand);
     }
   }
   if(slot) prunePivotFilter(slot, target.dimension, allRows);
@@ -5354,7 +5488,8 @@ function renderPivotCard(target, columnLabel, agg, hasColumn){
     page:pageMeta,
     limit,
     totalCount,
-    showSkuColumn
+    showSkuColumn,
+    showBrandColumn
   };
 
   if(!target.table._pivotSort){
