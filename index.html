@@ -131,9 +131,18 @@ body:not(.has-data) .app-header{display:none}
 /* Layout */
 #contentWrap{flex:1;display:flex;flex-direction:column;gap:14px;padding:12px clamp(14px,3vw,28px) 28px}
 body:not(.has-data) #contentWrap{justify-content:center;padding:0 18px}
-.empty-state{display:none;text-align:center;font-weight:600;color:var(--muted);line-height:1.6;max-width:520px;margin:0 auto;font-size:15px}
-.empty-state span{color:var(--accent);cursor:pointer;text-decoration:underline;font-weight:700}
-.empty-state span:focus-visible{outline:2px solid var(--accent);outline-offset:4px;border-radius:4px}
+.empty-state{display:none;flex-direction:column;align-items:center;gap:18px;text-align:center;font-weight:600;color:var(--muted);line-height:1.6;max-width:520px;margin:0 auto;padding:0 18px;font-size:15px}
+.empty-state-lede{font-size:16px;color:var(--text);font-weight:800}
+.empty-state-actions{display:flex;flex-direction:column;align-items:center;gap:18px;width:100%}
+.empty-dataset-options{display:flex;flex-direction:column;gap:10px;width:100%;max-width:360px}
+.empty-dataset-btn{width:100%;text-align:left;border:1px solid var(--border-strong);background:color-mix(in srgb,var(--panel) 85%, var(--chip));color:var(--text);border-radius:12px;padding:12px 16px;font-weight:700;cursor:pointer;box-shadow:var(--shadow);transition:background .2s ease,color .2s ease,transform .12s ease,box-shadow .25s ease}
+.empty-dataset-btn:hover{background:color-mix(in srgb,var(--chip) 90%, var(--panel));transform:translateY(-1px);box-shadow:0 10px 24px rgba(15,23,42,.22)}
+.empty-dataset-btn:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+.empty-dataset-btn.is-active{background:color-mix(in srgb,var(--accent) 18%, var(--panel));border-color:color-mix(in srgb,var(--accent) 55%, var(--border));color:var(--accent);box-shadow:0 12px 28px rgba(37,99,235,.22)}
+.empty-state-note{margin:0;color:var(--muted)}
+.empty-open-btn{border:1px solid var(--accent);background:linear-gradient(180deg,var(--accent),color-mix(in srgb,var(--accent) 85%,#000));color:#fff;font-weight:700;padding:10px 18px;border-radius:999px;cursor:pointer;box-shadow:0 10px 26px rgba(37,99,235,.22);transition:transform .12s ease,box-shadow .25s ease}
+.empty-open-btn:hover{transform:translateY(-1px);box-shadow:0 14px 32px rgba(37,99,235,.28)}
+.empty-open-btn:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 body:not(.has-data) #emptyState{display:flex;align-items:center;justify-content:center;min-height:60vh}
 body.has-data #emptyState{display:none}
 body:not(.has-data) #topLine,
@@ -433,8 +442,15 @@ body.has-data #tipPill{display:none !important}
 </header>
 
 <main id="contentWrap">
-  <div id="emptyState" class="empty-state" role="status">
-    📊 Choose a dataset to get started. Open the menu above or click <span id="emptyOpenLink" role="button" tabindex="0">Open XLSX</span> to load your own file.
+  <div id="emptyState" class="empty-state" role="status" aria-live="polite">
+    <p class="empty-state-lede">📊 Select a dataset to explore the dashboards.</p>
+    <div class="empty-state-actions">
+      <div id="emptyDatasetOptions" class="empty-dataset-options" role="group" aria-label="Available datasets"></div>
+      <div>
+        <p class="empty-state-note">or load your own file</p>
+        <button id="emptyOpenBtn" type="button" class="empty-open-btn">Open XLSX</button>
+      </div>
+    </div>
   </div>
 
   <div class="topline" id="topLine">
@@ -2205,7 +2221,8 @@ const el={
   filters:document.getElementById('filtersSection'),
   themeBtn:document.getElementById('themeBtn'),
   empty:document.getElementById('emptyState'),
-  emptyOpen:document.getElementById('emptyOpenLink'),
+  emptyDatasetOptions:document.getElementById('emptyDatasetOptions'),
+  emptyOpen:document.getElementById('emptyOpenBtn'),
   kpi:{
     spend:document.getElementById('kpiSpend'),
     revenue:document.getElementById('kpiRevenue'),
@@ -2302,6 +2319,15 @@ function updateDatasetMenuActive(){
       item.setAttribute('aria-checked', isActive?'true':'false');
     });
   }
+  if(el.emptyDatasetOptions){
+    el.emptyDatasetOptions.querySelectorAll('[data-dataset-id]').forEach(button=>{
+      const type=button.dataset.datasetType||'';
+      const file=button.dataset.datasetFile||'';
+      const isActive=!!dataset.file && dataset.type===type && dataset.file===file;
+      button.classList.toggle('is-active', isActive);
+      button.setAttribute('aria-pressed', isActive?'true':'false');
+    });
+  }
   if(menu.current){
     menu.current.textContent = dataset.label ? `Current: ${dataset.label}` : 'No dataset loaded';
   }
@@ -2350,6 +2376,27 @@ function closeDatasetMenu(focusBtn=true){
 function toggleDatasetMenu(){
   if(isDatasetMenuOpen()) closeDatasetMenu(false);
   else openDatasetMenu();
+}
+
+async function handleDatasetSelection(type,file,label){
+  const datasetType=type||'';
+  const datasetFile=file||'';
+  const datasetLabel=label || formatDatasetLabelFromFile(datasetFile);
+  if(!datasetType || !datasetFile) return;
+  try{
+    showLoading(true);
+    if(datasetType==='workbook'){
+      await loadWorkbookDatasetFromUrl(datasetFile,datasetLabel);
+    }else if(datasetType==='preprocessed'){
+      await loadPreprocessedDatasetFromUrl(datasetFile,datasetLabel);
+    }
+  }catch(err){
+    console.error(`Failed to load dataset ${datasetFile}:`, err);
+    alert(`Unable to load dataset "${datasetLabel}": ${err?.message||err}`);
+    if(!state.hasData) setHasData(false);
+  }finally{
+    showLoading(false);
+  }
 }
 
 function promptInitialDatasetSelection(){
@@ -2401,35 +2448,10 @@ function initDatasetMenu(){
     });
     menu.btn.__datasetMenuBound=true;
   }
+  renderEmptyStateDatasetOptions();
   updateDatasetMenuActive();
 }
 
-async function autoLoadDefaultDatasetIfNeeded(){
-  if(defaultDatasetAttempted || state.hasData) return false;
-  const options=getBuiltinDatasetOptions();
-  const first=options && options.length ? options[0] : null;
-  if(!first) return false;
-  defaultDatasetAttempted=true;
-  showLoading(true);
-  try{
-    if(first.type==='workbook'){
-      await loadWorkbookDatasetFromUrl(first.file, first.label);
-    }else if(first.type==='preprocessed'){
-      await loadPreprocessedDatasetFromUrl(first.file, first.label);
-    }else{
-      return false;
-    }
-    return true;
-  }catch(err){
-    console.error('Failed to load default dataset:', err);
-    const label=first.label || formatDatasetLabelFromFile(first.file) || 'dataset';
-    alert(`Unable to load default dataset "${label}": ${err?.message||err}`);
-    if(!state.hasData) setHasData(false);
-    return false;
-  }finally{
-    showLoading(false);
-  }
-}
 
 async function onDatasetMenuClick(event){
   const button=event.target.closest?.('[data-dataset-id]');
@@ -2439,21 +2461,7 @@ async function onDatasetMenuClick(event){
   const file=button.dataset.datasetFile||'';
   const label=button.dataset.datasetLabel || formatDatasetLabelFromFile(file);
   closeDatasetMenu(false);
-  if(!type || !file) return;
-  try{
-    showLoading(true);
-    if(type==='workbook'){
-      await loadWorkbookDatasetFromUrl(file,label);
-    }else if(type==='preprocessed'){
-      await loadPreprocessedDatasetFromUrl(file,label);
-    }
-  }catch(err){
-    console.error(`Failed to load dataset ${file}:`, err);
-    alert(`Unable to load dataset "${label}": ${err?.message||err}`);
-    if(!state.hasData) setHasData(false);
-  }finally{
-    showLoading(false);
-  }
+  await handleDatasetSelection(type,file,label);
 }
 const TAB_ORDER=['overview','overall','campaignPortfolio','targeting'];
 const PIVOT_SORT_KEYS=new Set(['label','sku','brand','spend','sales','acos']);
@@ -2510,7 +2518,6 @@ let asinSkuPromise=null;
 let advertisedProductsPromise=null;
 let loadingDepth=0;
 let datasetPromptShown=false;
-let defaultDatasetAttempted=false;
 
 function formatDatasetLabelFromFile(file){
   if(!file) return '';
@@ -2554,6 +2561,51 @@ function getBuiltinDatasetOptions(){
     });
   }
   return options;
+}
+
+function renderEmptyStateDatasetOptions(){
+  const container=el.emptyDatasetOptions;
+  if(!container) return;
+  const options=getBuiltinDatasetOptions();
+  container.innerHTML='';
+  if(!options.length){
+    container.hidden=true;
+    container.setAttribute('hidden','');
+    container.setAttribute('aria-hidden','true');
+    return;
+  }
+  container.hidden=false;
+  container.removeAttribute('hidden');
+  container.removeAttribute('aria-hidden');
+  const frag=document.createDocumentFragment();
+  options.forEach(opt=>{
+    const button=document.createElement('button');
+    button.type='button';
+    button.className='empty-dataset-btn';
+    button.dataset.datasetId=opt.id;
+    button.dataset.datasetType=opt.type;
+    button.dataset.datasetFile=opt.file;
+    button.dataset.datasetLabel=opt.label;
+    button.textContent=opt.label;
+    button.setAttribute('aria-pressed','false');
+    frag.appendChild(button);
+  });
+  container.appendChild(frag);
+  if(!container.__datasetOptionsBound){
+    container.addEventListener('click', onEmptyDatasetOptionClick);
+    container.__datasetOptionsBound=true;
+  }
+}
+
+async function onEmptyDatasetOptionClick(event){
+  const button=event.target.closest?.('.empty-dataset-btn');
+  if(!button) return;
+  event.preventDefault();
+  const type=button.dataset.datasetType||'';
+  const file=button.dataset.datasetFile||'';
+  const label=button.dataset.datasetLabel || formatDatasetLabelFromFile(file);
+  if(isDatasetMenuOpen()) closeDatasetMenu(false);
+  await handleDatasetSelection(type,file,label);
 }
 
 function ensureAsinSkuMap(){
@@ -3264,15 +3316,7 @@ function boot(){
   const triggerPicker=()=>{ if(el.fileInput) el.fileInput.click(); };
   if(el.pickLocalBtn) el.pickLocalBtn.addEventListener('click', triggerPicker);
   if(el.emptyOpen){
-    const openFromEmpty=(ev)=>{
-      if(ev){
-        if(ev.type==='keydown' && !['Enter',' ','Spacebar'].includes(ev.key)) return;
-        if(ev.type==='keydown') ev.preventDefault();
-      }
-      triggerPicker();
-    };
-    el.emptyOpen.addEventListener('click', openFromEmpty);
-    el.emptyOpen.addEventListener('keydown', openFromEmpty);
+    el.emptyOpen.addEventListener('click', triggerPicker);
   }
   if(el.fileInput) el.fileInput.addEventListener('change', handleLocalFile);
   if(el.dlCsv) el.dlCsv.addEventListener('click', onDownloadCsv);
@@ -3375,9 +3419,9 @@ function boot(){
   showLoading(false,{force:true});
   el.tipPill.hidden=true;
   el.monthsWrap.hidden=true;
-  autoLoadDefaultDatasetIfNeeded().then(loaded=>{
-    if(!loaded) promptInitialDatasetSelection();
-  });
+  const scheduleDatasetPrompt=()=>promptInitialDatasetSelection();
+  if(typeof requestAnimationFrame==='function') requestAnimationFrame(scheduleDatasetPrompt);
+  else setTimeout(scheduleDatasetPrompt,0);
 }
 function showLoading(on, options={}){
   const force=!!options.force;
