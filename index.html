@@ -35,6 +35,7 @@ body.light{
 *{box-sizing:border-box}
 html,body{height:100%}
 body{margin:0;font:13.5px/1.45 system-ui,-apple-system,Segoe UI,Roboto,"Helvetica Neue",Arial,"Noto Sans";color:var(--text);background:var(--bg);display:flex;flex-direction:column;min-height:100%}
+body.dataset-menu-open{overflow:hidden}
 [hidden]{display:none !important}
 h1{margin:0;font-weight:800;letter-spacing:.2px}
 .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
@@ -93,6 +94,7 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .dd-search-mode .dd-count{color:var(--muted);font-size:12px}
 .dd-search-mode .dd-empty{padding:18px 12px;font-weight:600;color:var(--muted)}
 .dataset-menu{position:relative;display:inline-flex;align-items:center}
+.dataset-menu.is-open{z-index:240;}
 .dataset-menu-trigger{position:relative;display:inline-flex;align-items:center;justify-content:center;width:46px;height:46px;padding:0;border-radius:14px;border:0;background:transparent;color:var(--muted);cursor:pointer;transition:background .25s ease,color .2s ease,transform .12s ease,box-shadow .25s ease}
 .dataset-menu-trigger::after{content:"";position:absolute;inset:4px;border-radius:12px;opacity:0;background:color-mix(in srgb,var(--panel) 75%, transparent);transition:opacity .2s ease,background .25s ease;pointer-events:none}
 .dataset-menu-trigger:hover{color:var(--text);transform:translateY(-1px)}
@@ -100,23 +102,27 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .dataset-menu-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .dataset-menu-icon{position:relative;display:inline-block;width:26px;height:18px}
 .dataset-menu-icon::after{content:"";position:absolute;top:50%;right:2px;width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translate(4px,-50%) rotate(-45deg) scale(.75);opacity:0;transition:opacity .25s ease,transform .32s ease}
-.dataset-menu-line{position:absolute;left:0;width:100%;height:2px;background:currentColor;border-radius:999px;transition:transform .32s ease,opacity .2s ease,background .2s ease,top .32s ease,bottom .32s ease,width .32s ease;transform-origin:left center}
-.dataset-menu-line.top{top:0}
-.dataset-menu-line.middle{top:50%;transform:translateY(-50%)}
-.dataset-menu-line.bottom{bottom:0}
-.dataset-menu.is-open .dataset-menu-trigger{color:var(--accent);box-shadow:0 14px 30px rgba(37,99,235,.18);transform:none}
+.dataset-menu-line{position:absolute;left:50%;width:20px;height:2px;background:currentColor;border-radius:999px;transition:transform .32s ease,opacity .2s ease,background .2s ease,top .32s ease,bottom .32s ease,width .32s ease;transform-origin:center center;transform:translateX(-50%)}
+.dataset-menu-line.top{top:3px}
+.dataset-menu-line.middle{top:50%;transform:translate(-50%,-50%)}
+.dataset-menu-line.bottom{bottom:3px}
+.dataset-menu.is-open .dataset-menu-trigger{color:var(--accent);box-shadow:0 14px 30px rgba(37,99,235,.18);transform:none;z-index:inherit}
 .dataset-menu.is-open .dataset-menu-trigger::after{opacity:1;background:color-mix(in srgb,var(--accent) 18%, var(--panel))}
 .dataset-menu.is-open .dataset-menu-icon::after{opacity:1;transform:translate(4px,-50%) rotate(-45deg) scale(1)}
-.dataset-menu.is-open .dataset-menu-line{width:60%}
-.dataset-menu.is-open .dataset-menu-line.top{top:50%;transform:translateY(-50%) rotate(45deg)}
-.dataset-menu.is-open .dataset-menu-line.middle{transform:translate(0,-50%);opacity:.65}
-.dataset-menu.is-open .dataset-menu-line.bottom{bottom:auto;top:50%;transform:translateY(-50%) rotate(-45deg)}
-.dataset-menu-popup{position:absolute;top:calc(100% + 8px);right:0;min-width:220px;max-width:280px;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px;z-index:130}
+.dataset-menu.is-open .dataset-menu-line{width:20px}
+.dataset-menu.is-open .dataset-menu-line.top{top:50%;transform:translate(-50%,-50%) rotate(45deg)}
+.dataset-menu.is-open .dataset-menu-line.middle{transform:translate(-50%,-50%);opacity:.45}
+.dataset-menu.is-open .dataset-menu-line.bottom{bottom:auto;top:50%;transform:translate(-50%,-50%) rotate(-45deg)}
+.dataset-menu-popup{position:fixed;inset:0;padding:clamp(16px,4vw,36px);display:flex;justify-content:center;align-items:center;background:rgba(12,16,24,.82);backdrop-filter:blur(10px);z-index:130;overflow:auto}
 .dataset-menu-popup[hidden]{display:none}
-.dataset-menu-head{display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:800;color:var(--text)}
-.dataset-menu-current{font-size:12px;font-weight:600;color:var(--muted)}
-.dataset-menu-list{display:flex;flex-direction:column;gap:6px}
-.dataset-menu-item{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 10px;border-radius:10px;border:1px solid transparent;background:color-mix(in srgb,var(--panel) 92%, transparent);color:var(--text);font-weight:600;cursor:pointer;transition:background .2s ease,transform .12s ease,border-color .2s ease,box-shadow .25s ease}
+.dataset-menu-surface{width:min(960px,100%);background:var(--panel);border:1px solid var(--border);border-radius:22px;box-shadow:0 30px 60px rgba(15,23,42,.45);padding:28px clamp(28px,4vw,48px);display:grid;grid-template-rows:auto 1fr;gap:22px;max-height:calc(100vh - clamp(48px,12vh,180px));overflow:hidden}
+.dataset-menu-head{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;font-weight:800;color:var(--text);flex-wrap:wrap}
+.dataset-menu-title{font-size:20px;letter-spacing:.2px;flex:1 1 auto}
+.dataset-menu-current{font-size:14px;font-weight:600;color:var(--muted);text-align:right;line-height:1.4;flex:1 1 100%;margin-top:4px}
+.dataset-menu-list{display:flex;flex-direction:column;gap:8px;overflow:auto;padding-right:6px;flex:1}
+.dataset-menu-list::-webkit-scrollbar{width:8px}
+.dataset-menu-list::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--accent) 35%, transparent);border-radius:999px}
+.dataset-menu-item{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:10px 14px;border-radius:12px;border:1px solid transparent;background:color-mix(in srgb,var(--panel) 92%, transparent);color:var(--text);font-weight:600;cursor:pointer;transition:background .2s ease,transform .12s ease,border-color .2s ease,box-shadow .25s ease}
 .dataset-menu-name{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .dataset-menu-item:hover{background:color-mix(in srgb,var(--chip) 90%, var(--panel));transform:translateY(-1px);box-shadow:0 8px 20px rgba(15,23,42,.22)}
 .dataset-menu-item:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
@@ -124,7 +130,14 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .dataset-menu-item .dataset-menu-check{opacity:0;color:var(--accent);font-size:14px}
 .dataset-menu-item.is-active{border-color:color-mix(in srgb,var(--accent) 55%, var(--border));background:color-mix(in srgb,var(--accent) 18%, var(--panel));box-shadow:0 12px 28px rgba(37,99,235,.22)}
 .dataset-menu-item.is-active .dataset-menu-check{opacity:1}
-.dataset-menu-empty{padding:6px 0;font-weight:600;color:var(--muted);text-align:center}
+.dataset-menu-empty{padding:12px 0;font-weight:600;color:var(--muted);text-align:center}
+
+@media(max-width:720px){
+  .dataset-menu-popup{padding:20px 14px}
+  .dataset-menu-surface{border-radius:18px;padding:24px 20px;gap:18px;width:100%;max-height:calc(100vh - 28px)}
+  .dataset-menu-title{font-size:18px}
+  .dataset-menu-current{text-align:left}
+}
 @media(max-width:900px){
   .app-header{grid-template-columns:1fr;justify-items:center;text-align:center}
   .header-left{justify-content:center}
@@ -421,12 +434,14 @@ body.has-data #tipPill{display:none !important}
         </span>
       </button>
       <div id="datasetMenu" class="dataset-menu-popup" role="menu" aria-orientation="vertical" hidden>
-        <div class="dataset-menu-head">
-          <span>Datasets</span>
-          <span id="datasetMenuCurrent" class="dataset-menu-current">No dataset loaded</span>
+        <div class="dataset-menu-surface" role="none">
+          <div class="dataset-menu-head">
+            <span class="dataset-menu-title">Datasets</span>
+            <span id="datasetMenuCurrent" class="dataset-menu-current">No dataset loaded</span>
+          </div>
+          <div id="datasetMenuList" class="dataset-menu-list" role="none"></div>
+          <div id="datasetMenuEmpty" class="dataset-menu-empty" hidden>No built-in datasets found</div>
         </div>
-        <div id="datasetMenuList" class="dataset-menu-list" role="none"></div>
-        <div id="datasetMenuEmpty" class="dataset-menu-empty" hidden>No built-in datasets found</div>
       </div>
     </div>
     <div class="header-title"><h1 id="datasetTitle">Search Terms Analytics</h1></div>
@@ -2413,7 +2428,7 @@ function openDatasetMenu(){
   menu.popup.removeAttribute('hidden');
   if(menu.container) menu.container.classList.add('is-open');
   if(menu.btn) menu.btn.setAttribute('aria-expanded','true');
-  clampPanelRight(menu.popup);
+  try{ document.body.classList.add('dataset-menu-open'); }catch(_){ }
   return true;
 }
 
@@ -2424,6 +2439,7 @@ function closeDatasetMenu(focusBtn=true){
   menu.popup.classList.remove('open');
   menu.popup.setAttribute('hidden','');
   if(menu.container) menu.container.classList.remove('is-open');
+  try{ document.body.classList.remove('dataset-menu-open'); }catch(_){ }
   if(menu.btn){
     menu.btn.setAttribute('aria-expanded','false');
     if(focusBtn){
@@ -2501,12 +2517,30 @@ function initDatasetMenu(){
     menu.list.addEventListener('click', onDatasetMenuClick);
     menu.list.__datasetMenuBound=true;
   }
+  if(menu.popup && !menu.popup.__datasetMenuBound){
+    menu.popup.addEventListener('click', ev=>{
+      const surface=menu.popup.querySelector('.dataset-menu-surface');
+      if(surface && !surface.contains(ev.target)){
+        closeDatasetMenu(false);
+      }
+    });
+    menu.popup.__datasetMenuBound=true;
+  }
   if(menu.btn && !menu.btn.__datasetMenuBound){
     menu.btn.addEventListener('click', ev=>{
       ev.preventDefault();
       toggleDatasetMenu();
     });
     menu.btn.__datasetMenuBound=true;
+  }
+  if(!document.__datasetMenuKeydownBound){
+    document.addEventListener('keydown', ev=>{
+      if(ev.key==='Escape' && isDatasetMenuOpen()){
+        ev.preventDefault();
+        closeDatasetMenu();
+      }
+    });
+    document.__datasetMenuKeydownBound=true;
   }
   renderEmptyStateDatasetOptions();
   updateDatasetMenuActive();
