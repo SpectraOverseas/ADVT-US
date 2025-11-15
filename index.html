@@ -615,7 +615,7 @@ body.has-data #tipPill{display:none !important}
       <table id="pivotTablePlacement" class="pivot-table"></table>
     </div>
   </div>
-  <div class="chart-card pivot-card" id="pivotCampaignCard">
+  <div class="chart-card pivot-card pivot-overall-left" id="pivotCampaignCard">
     <div class="chart-title">
       <span class="chart-title-text">Campaign Performance Pivot</span>
       <button type="button" class="pivot-action-btn pivot-copy-btn" data-copy-target="pivotTableCampaign" title="Copy Campaign Performance Pivot table" aria-label="Copy Campaign Performance Pivot table">
@@ -631,7 +631,7 @@ body.has-data #tipPill{display:none !important}
       <table id="pivotTableCampaign" class="pivot-table"></table>
     </div>
   </div>
-  <div class="chart-card pivot-card" id="pivotAdGroupCard">
+  <div class="chart-card pivot-card pivot-overall-right" id="pivotAdGroupCard">
     <div class="chart-title">
       <span class="chart-title-text">Ad Group Performance Pivot</span>
       <button type="button" class="pivot-action-btn pivot-copy-btn" data-copy-target="pivotTableAdGroup" title="Copy Ad Group Performance Pivot table" aria-label="Copy Ad Group Performance Pivot table">
@@ -2303,8 +2303,62 @@ function setActiveDataset(info){
       label:label || file
     };
   }
+  applyDatasetOverrides(state.dataset);
   updateDatasetMenuActive();
   updateDatasetTitle();
+}
+
+function applyDatasetOverrides(dataset){
+  TAB_ORDER=DEFAULT_TAB_ORDER.slice();
+  PIVOT_CONFIG=clonePivotConfig(DEFAULT_PIVOT_CONFIG);
+  const file=(dataset?.file||'').toLowerCase();
+  const label=(dataset?.label||'').toLowerCase();
+  const isProductsCampaign=file.includes('products campaign') || label.includes('products campaign');
+  if(isProductsCampaign){
+    TAB_ORDER=TAB_ORDER.filter(tab=>tab!=='campaignPortfolio' && tab!=='targeting');
+    delete PIVOT_CONFIG.campaignPortfolio;
+    delete PIVOT_CONFIG.targeting;
+    const overall=PIVOT_CONFIG.overall||[];
+    const ensureSlot=(slot,column,fallback,options)=>{
+      if(!overall.some(entry=>entry?.slot===slot)){
+        const cfg={slot,column,fallback};
+        if(options) cfg.options={...options};
+        overall.push(cfg);
+      }
+    };
+    ensureSlot('campaign','campaign','Campaign Name');
+    ensureSlot('adGroup','adgroup','Ad Group Name');
+  }
+  updateTabButtonsForOrder(TAB_ORDER);
+  if(!TAB_ORDER.includes(state.activeTab)){
+    state.activeTab=TAB_ORDER[0] || 'overview';
+  }
+  state.lastTabIndex=TAB_ORDER.indexOf(state.activeTab);
+  updateTabsUI();
+  if(state.hasData) updateAdvertisedProductsDisplay();
+}
+
+function updateTabButtonsForOrder(order){
+  if(!el.tabs?.list) return;
+  const allowed=new Set(order||[]);
+  const buttons=Array.from(el.tabs.list.querySelectorAll('[data-tab]'));
+  buttons.forEach(btn=>{
+    const tab=btn.dataset.tab;
+    const show=allowed.size===0 || allowed.has(tab);
+    btn.hidden=!show;
+    if(!show){
+      btn.setAttribute('aria-hidden','true');
+      btn.setAttribute('tabindex','-1');
+      btn.setAttribute('aria-selected','false');
+      btn.classList.remove('is-active');
+    }else{
+      btn.removeAttribute('aria-hidden');
+    }
+  });
+  el.tabs.buttons=buttons.filter(btn=>!btn.hidden);
+  if(el.tabs.bar){
+    el.tabs.bar.hidden = el.tabs.buttons.length<=1;
+  }
 }
 
 function updateDatasetMenuActive(){
@@ -2463,7 +2517,8 @@ async function onDatasetMenuClick(event){
   closeDatasetMenu(false);
   await handleDatasetSelection(type,file,label);
 }
-const TAB_ORDER=['overview','overall','campaignPortfolio','targeting'];
+const DEFAULT_TAB_ORDER=['overview','overall','campaignPortfolio','targeting'];
+let TAB_ORDER=DEFAULT_TAB_ORDER.slice();
 const PIVOT_SORT_KEYS=new Set(['label','sku','brand','spend','sales','acos']);
 
 const kpiSparkCache=new Map();
@@ -2474,7 +2529,14 @@ let lastKpiSeries=null;
 let pivotLayoutFrame=null;
 let skuSyncing=false;
 if(el.tabs?.list){ el.tabs.buttons = Array.from(el.tabs.list.querySelectorAll('[data-tab]')); }
-const PIVOT_CONFIG={
+function clonePivotConfig(source){
+  const copy={};
+  Object.entries(source||{}).forEach(([key,value])=>{
+    copy[key]=Array.isArray(value)?value.map(item=>({...item})):[];
+  });
+  return copy;
+}
+const DEFAULT_PIVOT_CONFIG={
   overview:[
     {slot:'store', column:'store', fallback:'Store'},
     {slot:'portfolio', column:'portfolio', fallback:'Portfolio Name', options:{caseInsensitive:true}},
@@ -2497,9 +2559,10 @@ const PIVOT_CONFIG={
     {slot:'targetingCat', column:'targetingCat', fallback:'Targeting CAT'}
   ]
 };
+let PIVOT_CONFIG=clonePivotConfig(DEFAULT_PIVOT_CONFIG);
 const INITIAL_FILTER_KEYS=(()=>{
   const keys=new Set(['term']);
-  (PIVOT_CONFIG.overview||[]).forEach(cfg=>{
+  (DEFAULT_PIVOT_CONFIG.overview||[]).forEach(cfg=>{
     if(cfg?.column) keys.add(cfg.column);
   });
   return Array.from(keys);
@@ -3509,6 +3572,7 @@ function setHasData(has){
     closeDatasetMenu(false);
     promptInitialDatasetSelection();
   }
+  updateTabButtonsForOrder(TAB_ORDER);
   updateMonthSummary();
   updateTabsUI();
   updateResetButtonVisibility();
@@ -5735,7 +5799,10 @@ function updateAdvertisedProductsDisplay(){
     tracker.renderToken=(tracker.renderToken||0)+1;
   }
   const token=tracker?.renderToken||0;
-  if(!state.hasData || state.activeTab!=='campaignPortfolio'){
+  const activeConfig=Array.isArray(PIVOT_CONFIG[state.activeTab])?PIVOT_CONFIG[state.activeTab]:[];
+  const supportsCampaign=activeConfig.some(cfg=>cfg?.slot==='campaign');
+  const supportsAdGroup=activeConfig.some(cfg=>cfg?.slot==='adGroup');
+  if(!state.hasData || (!supportsCampaign && !supportsAdGroup)){
     view.card.hidden=true;
     return;
   }
