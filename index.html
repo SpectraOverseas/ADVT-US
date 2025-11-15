@@ -2404,6 +2404,33 @@ function initDatasetMenu(){
   updateDatasetMenuActive();
 }
 
+async function autoLoadDefaultDatasetIfNeeded(){
+  if(defaultDatasetAttempted || state.hasData) return false;
+  const options=getBuiltinDatasetOptions();
+  const first=options && options.length ? options[0] : null;
+  if(!first) return false;
+  defaultDatasetAttempted=true;
+  showLoading(true);
+  try{
+    if(first.type==='workbook'){
+      await loadWorkbookDatasetFromUrl(first.file, first.label);
+    }else if(first.type==='preprocessed'){
+      await loadPreprocessedDatasetFromUrl(first.file, first.label);
+    }else{
+      return false;
+    }
+    return true;
+  }catch(err){
+    console.error('Failed to load default dataset:', err);
+    const label=first.label || formatDatasetLabelFromFile(first.file) || 'dataset';
+    alert(`Unable to load default dataset "${label}": ${err?.message||err}`);
+    if(!state.hasData) setHasData(false);
+    return false;
+  }finally{
+    showLoading(false);
+  }
+}
+
 async function onDatasetMenuClick(event){
   const button=event.target.closest?.('[data-dataset-id]');
   if(!button) return;
@@ -2483,6 +2510,7 @@ let asinSkuPromise=null;
 let advertisedProductsPromise=null;
 let loadingDepth=0;
 let datasetPromptShown=false;
+let defaultDatasetAttempted=false;
 
 function formatDatasetLabelFromFile(file){
   if(!file) return '';
@@ -3347,7 +3375,9 @@ function boot(){
   showLoading(false,{force:true});
   el.tipPill.hidden=true;
   el.monthsWrap.hidden=true;
-  promptInitialDatasetSelection();
+  autoLoadDefaultDatasetIfNeeded().then(loaded=>{
+    if(!loaded) promptInitialDatasetSelection();
+  });
 }
 function showLoading(on, options={}){
   const force=!!options.force;
