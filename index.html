@@ -5501,7 +5501,7 @@ function renderPivotCard(target, columnLabel, agg, hasColumn){
 
   const slot=target.table?._pivotSlot || target.card?.dataset.pivotSlot || '';
   const showSkuColumn=slot==='targetingAsin';
-  const showBrandColumn=slot==='conversionAsin';
+  const showBrandColumn=slot==='conversionAsin' || slot==='targetingAsin';
   if((showSkuColumn || showBrandColumn) && !state.asinSkuLoaded){
     ensureAsinSkuMap();
   }
