@@ -4370,10 +4370,11 @@ function refreshLinkedFilterOptions(root){
   if(state.activePivotModal) return;
   const isMainFilter = !!root.closest?.('#filtersSection');
   if(isMainFilter){
-    resetConversionPaging();
-    renderAll();
-    updateResetButtonVisibility();
+    return;
   }
+  resetConversionPaging();
+  renderAll();
+  updateResetButtonVisibility();
 }
 function ddApplyImmediateFilters(root){
   if(!root?.classList?.contains('dd-search-mode')) return;
@@ -6079,6 +6080,7 @@ function closeFiltersApply(){
   el.modal.setAttribute('aria-hidden','true');
   resetConversionPaging();
   renderAll();
+  updateResetButtonVisibility();
   restoreFiltersTriggerFocus();
 }
 function clearAllFilters(){
