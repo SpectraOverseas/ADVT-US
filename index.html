@@ -1961,7 +1961,7 @@ const fmt={
   num0:n=>isFinite(n)?new Intl.NumberFormat(undefined,{maximumFractionDigits:0,minimumFractionDigits:0}).format(n):"—"
 };
 const MONTH_NAMES=["January","February","March","April","May","June","July","August","September","October","November","December"];
-const LAST_PUSH_DATE="2025-11-18 13:37:57 +0530";
+const LAST_PUSH_DATE="2025-11-19 17:08:42 +0530";
 const normalize=s=>String(s||"").trim().toLowerCase().replace(/\s+/g," ");
 function normalizeAdvertisedKey(value){
   if(value==null) return '';
@@ -4770,19 +4770,21 @@ function buildFilterContext(excludeRoot){
   return {conditions, meta:{dateInfo, from, to, monthSet}};
 }
 function updateAllFilterOptions(excludeRoot, options={}){
-  const context=buildFilterContext(excludeRoot||null);
   const keysOption=Array.isArray(options.keys)?options.keys.filter(Boolean):null;
   const targetKeys=keysOption && keysOption.length ? new Set(keysOption) : null;
+  const fullContext=buildFilterContext(null);
+  const excludedContext=excludeRoot ? buildFilterContext(excludeRoot) : fullContext;
   Object.entries(el.dd).forEach(([k,root])=>{
     if(!root) return;
     if(targetKeys && !targetKeys.has(k)) return;
+    const contextForRoot = (excludeRoot && root===excludeRoot) ? excludedContext : fullContext;
     if(k==='sku'){
-      ddSetOptions(root, skuOptionsWithCounts(context), true);
+      ddSetOptions(root, skuOptionsWithCounts(contextForRoot), true);
       return;
     }
     const col=state.columns[k];
     if(!col || col.aliasOf) return;
-    ddSetOptions(root, optionsWithCounts(k, context), true);
+    ddSetOptions(root, optionsWithCounts(k, contextForRoot), true);
   });
 }
 
