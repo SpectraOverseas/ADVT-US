@@ -5480,6 +5480,20 @@ function renderPivotCard(target, columnLabel, agg, hasColumn){
   const spendVals = Array.isArray(agg?.spend) ? agg.spend.map(v=>+v||0) : labels.map(()=>0);
   const salesVals = Array.isArray(agg?.sales) ? agg.sales.map(v=>+v||0) : labels.map(()=>0);
 
+  if(!labels.length){
+    target.card.hidden = true;
+    if(target.card?.style) target.card.style.removeProperty('grid-row-end');
+    if(target.table){
+      target.table.innerHTML='';
+      target.table._pivotData=null;
+      target.table.classList.remove('has-grand-total');
+      updatePivotFootSpace(target.table);
+    }
+    setPivotNote(target.card, '');
+    schedulePivotLayout();
+    return false;
+  }
+
   const parseAcosValue=(value)=>{
     if(typeof value==='number') return value;
     const str=String(value??'').trim();
