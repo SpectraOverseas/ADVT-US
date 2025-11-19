@@ -100,17 +100,17 @@ button:disabled{opacity:.5;cursor:not-allowed}
 .dataset-menu-trigger:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
 .dataset-menu-icon{position:relative;display:inline-block;width:26px;height:18px}
 .dataset-menu-icon::after{content:"";position:absolute;top:50%;right:2px;width:8px;height:8px;border-right:2px solid currentColor;border-bottom:2px solid currentColor;transform:translate(4px,-50%) rotate(-45deg) scale(.75);opacity:0;transition:opacity .25s ease,transform .32s ease}
-.dataset-menu-line{position:absolute;left:0;width:100%;height:2px;background:currentColor;border-radius:999px;transition:transform .32s ease,opacity .2s ease,background .2s ease,top .32s ease,bottom .32s ease,width .32s ease;transform-origin:left center}
+.dataset-menu-line{position:absolute;left:50%;width:100%;height:2px;background:currentColor;border-radius:999px;transition:transform .32s ease,opacity .2s ease,background .2s ease,top .32s ease,bottom .32s ease,width .32s ease;transform:translate(-50%,0);transform-origin:center}
 .dataset-menu-line.top{top:0}
-.dataset-menu-line.middle{top:50%;transform:translateY(-50%)}
+.dataset-menu-line.middle{top:50%;transform:translate(-50%,-50%)}
 .dataset-menu-line.bottom{bottom:0}
 .dataset-menu.is-open .dataset-menu-trigger{color:var(--accent);box-shadow:0 14px 30px rgba(37,99,235,.18);transform:none}
 .dataset-menu.is-open .dataset-menu-trigger::after{opacity:1;background:color-mix(in srgb,var(--accent) 18%, var(--panel))}
 .dataset-menu.is-open .dataset-menu-icon::after{opacity:1;transform:translate(4px,-50%) rotate(-45deg) scale(1)}
 .dataset-menu.is-open .dataset-menu-line{width:60%}
-.dataset-menu.is-open .dataset-menu-line.top{top:50%;transform:translateY(-50%) rotate(45deg)}
-.dataset-menu.is-open .dataset-menu-line.middle{transform:translate(0,-50%);opacity:.65}
-.dataset-menu.is-open .dataset-menu-line.bottom{bottom:auto;top:50%;transform:translateY(-50%) rotate(-45deg)}
+.dataset-menu.is-open .dataset-menu-line.top{top:50%;transform:translate(-50%,-50%) rotate(45deg)}
+.dataset-menu.is-open .dataset-menu-line.middle{transform:translate(-50%,-50%);opacity:.65}
+.dataset-menu.is-open .dataset-menu-line.bottom{bottom:auto;top:50%;transform:translate(-50%,-50%) rotate(-45deg)}
 .dataset-menu-popup{position:absolute;top:calc(100% + 8px);right:0;min-width:220px;max-width:280px;padding:12px;border-radius:12px;border:1px solid var(--border);background:var(--panel);box-shadow:var(--shadow);display:flex;flex-direction:column;gap:10px;z-index:130}
 .dataset-menu-popup[hidden]{display:none}
 .dataset-menu-head{display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:800;color:var(--text)}
@@ -4316,8 +4316,11 @@ function ddSetOptions(root, items, keepSel=true){
         }else{
           ddApplyImmediateFilters(root);
         }
-      }else if(filterKey==='targetingAsin'){
-        onAsinFilterSelectionChange();
+      }else{
+        if(filterKey==='targetingAsin'){
+          onAsinFilterSelectionChange();
+        }
+        refreshLinkedFilterOptions(root);
       }
       const panel=root.querySelector('.dd-panel');
       if(panel){
@@ -4334,11 +4337,13 @@ function ddSetOptions(root, items, keepSel=true){
       ddRefreshSearchSelections(root);
       if(filterKey==='sku'){
         onSkuFilterSelectionChange(true);
+      }else if(root.classList.contains('dd-search-mode')){
+        ddApplyImmediateFilters(root);
       }else{
         if(filterKey==='targetingAsin'){
           onAsinFilterSelectionChange();
         }
-        ddApplyImmediateFilters(root);
+        refreshLinkedFilterOptions(root);
       }
     });
   });
@@ -4357,6 +4362,11 @@ function computeSearchPlaceholder(labelText, fallback){
     return secondary.toLowerCase().includes('search') ? secondary : `Search ${secondary}`;
   }
   return 'Search';
+}
+function refreshLinkedFilterOptions(root){
+  if(!root || root.classList.contains('dd-search-mode')) return;
+  if(!state.hasData) return;
+  updateAllFilterOptions(root);
 }
 function ddApplyImmediateFilters(root){
   if(!root?.classList?.contains('dd-search-mode')) return;
