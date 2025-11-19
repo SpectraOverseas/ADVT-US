@@ -4367,6 +4367,13 @@ function refreshLinkedFilterOptions(root){
   if(!root || root.classList.contains('dd-search-mode')) return;
   if(!state.hasData) return;
   updateAllFilterOptions(root);
+  if(state.activePivotModal) return;
+  const isMainFilter = !!root.closest?.('#filtersSection');
+  if(isMainFilter){
+    resetConversionPaging();
+    renderAll();
+    updateResetButtonVisibility();
+  }
 }
 function ddApplyImmediateFilters(root){
   if(!root?.classList?.contains('dd-search-mode')) return;
@@ -6036,10 +6043,18 @@ function openFiltersModal(options={}){
   el.modal.setAttribute('aria-hidden','false');
 }
 function closeFiltersCancel(){
+  const pivotContext=state.activePivotModal;
   state.activePivotModal=null;
   restoreSnapshot();
   el.modal.classList.remove('open');
   el.modal.setAttribute('aria-hidden','true');
+  if(pivotContext){
+    updatePivotFilterButtons();
+    refreshActivePivotPopup();
+  }else{
+    resetConversionPaging();
+    renderAll();
+  }
   restoreFiltersTriggerFocus();
 }
 function closeFiltersApply(){
