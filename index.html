@@ -2615,7 +2615,7 @@ const DEFAULT_PIVOT_CONFIG={
   ],
   targeting:[
     {slot:'targetingAsin', column:'targetingAsin', fallback:'Targeting ASIN'},
-    {slot:'targetingKeyword', column:'targeting', fallback:'Keyword', options:{baseFilters:[{stateKey:'tsub', values:['Keyword']}]}},
+    {slot:'targetingKeyword', column:'targeting', fallback:'Keyword', options:{displayName:'Keyword', baseFilters:[{stateKey:'tsub', values:['Keyword']}]}},
     {slot:'targetingCat', column:'targetingCat', fallback:'Targeting CAT'}
   ]
 };
@@ -5987,9 +5987,9 @@ function renderAll(){
     if(!target) return false;
     if(target.table) target.table._pivotSlot=slot;
     const columnDef=state.columns[column];
-    const columnName=columnDef?.name || fallback;
-    const columnKey=columnDef ? normalize(columnDef.name) : null;
     const opts=options||{};
+    const columnName=opts.displayName || columnDef?.name || fallback;
+    const columnKey=columnDef ? normalize(columnDef.name) : null;
     target.dimension = columnKey ? {stateKey:column, columnKey, caseInsensitive:!!opts.caseInsensitive} : null;
     const hasMetrics = spendInfo && salesInfo && columnKey;
     const pivotFilter = getPivotFilterValues(slot);
